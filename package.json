@@ -14,7 +14,9 @@
     "format": "biome format --write .",
     "lint": "biome check .",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev:workers": "wrangler dev",
+    "deploy:workers": "wrangler deploy"
   },
   "dependencies": {
     "@slack/bolt": "5.0.0",
@@ -25,6 +27,8 @@
     "@biomejs/biome": "2.5.8",
     "@types/node": "26.2.0",
     "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "wrangler": "^4.124.0",
+    "yaml": "^2.9.0"
   }
 }
