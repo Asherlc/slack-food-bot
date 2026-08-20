@@ -46,11 +46,26 @@ committed. Startup fails immediately and names missing or invalid keys.
 
 The Worker is configured in `wrangler.jsonc` and currently exposes only
 `GET /health` at the deployed Worker URL (for example,
-`https://slack-food-bot.<your-subdomain>.workers.dev/health`). Use the local
-preview or authenticated publication commands below:
+`https://slack-food-bot.<your-subdomain>.workers.dev/health`).
+
+For a local health-only preview, copy the safe placeholder configuration into
+the existing ignored `.env` file before starting Wrangler. These values are
+only schema-valid local placeholders; they do not enable Slack, Redis, target,
+or AI integrations:
 
 ```sh
+cp .env.example .env
 pnpm dev:workers
+```
+
+Then request the local URL printed by Wrangler with `/health`. Without the
+required local bindings in `.env`, the Worker intentionally returns HTTP 500
+because it validates configuration before routing.
+
+Use the authenticated publication command only after configuring deployed
+Worker secrets:
+
+```sh
 pnpm deploy:workers
 ```
 
