@@ -22,6 +22,15 @@ const env: CloudflareEnv = {
 };
 
 describe("Cloudflare Worker", () => {
+  it("redirects the public root to Slack installation", async () => {
+    const response = await worker.fetch(new Request("https://food-bot.example/"), env);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toMatch(
+      /^https:\/\/slack\.com\/oauth\/v2\/authorize\?/,
+    );
+  });
+
   it("serves a secret-free health response without accessing state", async () => {
     const response = await worker.fetch(new Request("https://food-bot.example/health"), env);
 

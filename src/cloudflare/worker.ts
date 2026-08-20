@@ -17,7 +17,7 @@ const worker = {
   async fetch(request: Request, env: CloudflareEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/health") return Response.json({ status: "ok" });
-    if (request.method === "GET" && path === "/slack/install") {
+    if (request.method === "GET" && (path === "/" || path === "/slack/install")) {
       const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
       return startSlackOAuth({
         clientId: env.SLACK_CLIENT_ID,
