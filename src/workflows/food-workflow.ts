@@ -28,6 +28,10 @@ type RefinementMessenger = {
   }): Promise<void>;
 };
 
+type CancellationMessenger = {
+  publishCancelled(input: { channelId: string; confirmationMessageTs: string }): Promise<void>;
+};
+
 type WorkflowPendingStore = Partial<
   Pick<PendingEntryStore, "save" | "loadByIds" | "deleteByIds" | "findIdsByMessage">
 >;
@@ -38,7 +42,10 @@ export class FoodWorkflow {
   readonly #analyzer: Partial<Pick<NutritionAnalyzer, "analyze" | "refine">> | undefined;
   readonly #pending: WorkflowPendingStore;
   readonly #messenger:
-    | (Partial<DraftMessenger> & Partial<ConfirmationMessenger> & Partial<RefinementMessenger>)
+    | (Partial<DraftMessenger> &
+        Partial<ConfirmationMessenger> &
+        Partial<RefinementMessenger> &
+        Partial<CancellationMessenger>)
     | undefined;
   readonly #grants: GrantStore | undefined;
   readonly #target: FoodTarget | undefined;
@@ -48,7 +55,8 @@ export class FoodWorkflow {
     pending: WorkflowPendingStore;
     messenger?: Partial<DraftMessenger> &
       Partial<ConfirmationMessenger> &
-      Partial<RefinementMessenger>;
+      Partial<RefinementMessenger> &
+      Partial<CancellationMessenger>;
     grants?: GrantStore;
     target?: FoodTarget;
   }) {
@@ -195,6 +203,40 @@ export class FoodWorkflow {
       channelId: input.channelId,
       confirmationMessageTs: firstEntry.confirmationMessageTs,
       result,
+    });
+    await this.#pending.deleteByIds(entries.map((entry) => entry.id));
+  }
+
+  async cancel(input: {
+    teamId: string;
+    userId: string;
+    channelId: string;
+    entryIds: ReadonlyArray<string>;
+  }): Promise<void> {
+    if (
+      !this.#pending.loadByIds ||
+      !this.#pending.deleteByIds ||
+      !this.#messenger?.publishCancelled
+    ) {
+      throw new Error("Food cancellation workflow is not configured");
+    }
+    const entries = await this.#pending.loadByIds(input.entryIds);
+    const firstEntry = entries[0];
+    if (!firstEntry) return;
+    const externalSubject = `slack:${input.teamId}:${input.userId}`;
+    if (
+      entries.some(
+        (entry) =>
+          entry.externalSubject !== externalSubject ||
+          entry.slackUserId !== input.userId ||
+          entry.channelId !== input.channelId,
+      )
+    ) {
+      throw new Error("Pending food entries do not belong to this Slack user");
+    }
+    await this.#messenger.publishCancelled({
+      channelId: input.channelId,
+      confirmationMessageTs: firstEntry.confirmationMessageTs,
     });
     await this.#pending.deleteByIds(entries.map((entry) => entry.id));
   }

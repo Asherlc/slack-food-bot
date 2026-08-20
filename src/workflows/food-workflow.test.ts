@@ -136,4 +136,32 @@ describe("FoodWorkflow", () => {
       expect.objectContaining({ item: { ...item, foodDescription: "Two bowls" } }),
     ]);
   });
+
+  it("cancels only the requesting user's pending entries", async () => {
+    const entry = {
+      id: "entry-1",
+      externalSubject: "slack:T1:U1",
+      date: "2026-08-20",
+      item,
+      channelId: "D1",
+      confirmationMessageTs: "2.000001",
+      threadTs: "1.000001",
+      sourceMessageTs: "1.000001",
+      slackUserId: "U1",
+    };
+    const pending = {
+      loadByIds: vi.fn(async () => [entry]),
+      deleteByIds: vi.fn(async () => undefined),
+    };
+    const messenger = { publishCancelled: vi.fn(async () => undefined) };
+    const workflow = new FoodWorkflow({ pending, messenger });
+
+    await workflow.cancel({ teamId: "T1", userId: "U1", channelId: "D1", entryIds: ["entry-1"] });
+
+    expect(messenger.publishCancelled).toHaveBeenCalledWith({
+      channelId: "D1",
+      confirmationMessageTs: "2.000001",
+    });
+    expect(pending.deleteByIds).toHaveBeenCalledWith(["entry-1"]);
+  });
 });
