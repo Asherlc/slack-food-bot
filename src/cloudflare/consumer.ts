@@ -43,6 +43,11 @@ type ConsumerDependencies = Partial<{
     threadTs: string;
     description: string;
   }): Promise<void>;
+  publishLinkRequired(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+  }): Promise<void>;
   savePending(entries: ReadonlyArray<CloudflarePendingEntry>): Promise<void>;
   findPending(channelId: string, confirmationMessageTs: string): Promise<CloudflarePendingEntry[]>;
   deletePending(ids: ReadonlyArray<string>): Promise<void>;
@@ -84,7 +89,13 @@ async function processEvent(
   job: Extract<SlackQueueJob, { kind: "event" }>,
   dependencies: ConsumerDependencies,
 ): Promise<void> {
-  if (!dependencies.analyze || !dependencies.publishDraft || !dependencies.savePending)
+  if (
+    !dependencies.analyze ||
+    !dependencies.publishDraft ||
+    !dependencies.savePending ||
+    !dependencies.loadGrant ||
+    !dependencies.publishLinkRequired
+  )
     throw new Error("Cloudflare analysis workflow is not configured");
   const event = objectField(job.payload, "event");
   if (!event || stringField(event, "subtype") || stringField(event, "bot_id")) return;
@@ -105,6 +116,10 @@ async function processEvent(
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   if (!text) return;
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
+  if (!(await dependencies.loadGrant(`slack:${teamId}:${userId}`))) {
+    await dependencies.publishLinkRequired({ teamId, channelId, threadTs });
+    return;
+  }
   const clarification = await dependencies.consumeClarification?.({
     teamId,
     channelId,

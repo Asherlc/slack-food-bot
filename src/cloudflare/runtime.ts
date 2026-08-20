@@ -46,6 +46,7 @@ export async function processCloudflareFoodJob(
     consumeClarification: (input) => store.consumeClarification(input),
     publishDraft: (input) => messenger.publishDraft(input),
     publishClarification: (input) => messenger.publishClarification(input),
+    publishLinkRequired: (input) => messenger.publishLinkRequired(input),
     savePending: (entries) => store.savePending(entries, 86_400),
     findPending: (channelId, messageTs) => store.findPending(channelId, messageTs),
     deletePending: (ids) => store.deletePending(ids),
@@ -116,6 +117,18 @@ class CloudflareSlackMessenger {
       channel: input.channelId,
       thread_ts: input.threadTs,
       text: `I don't want to assume what “${input.description}” includes. Please reply with a complete description of its components, including any bread, sauces, toppings, or sides.`,
+    });
+  }
+
+  async publishLinkRequired(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.postMessage", {
+      channel: input.channelId,
+      thread_ts: input.threadTs,
+      text: "Before I can log food, link your Dofek account with `/link-dofek`.",
     });
   }
 

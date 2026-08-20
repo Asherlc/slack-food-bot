@@ -10,6 +10,41 @@ const oatmeal = {
 };
 
 describe("Cloudflare food Queue consumer", () => {
+  it("requires a Dofek link before analyzing or drafting a food message", async () => {
+    const analyze = vi.fn(async () => [oatmeal]);
+    const prompts: unknown[] = [];
+
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvLinkRequired",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1710000000.000001",
+            text: "oatmeal",
+          },
+        },
+      },
+      {
+        loadGrant: async () => null,
+        publishLinkRequired: async (input) => {
+          prompts.push(input);
+        },
+        analyze,
+        publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
+        savePending: async () => undefined,
+      },
+    );
+
+    expect(prompts).toEqual([{ teamId: "T1", channelId: "D1", threadTs: "1710000000.000001" }]);
+    expect(analyze).not.toHaveBeenCalled();
+  });
+
   it("creates encrypted pending entries after analyzing a Slack DM", async () => {
     const saved: unknown[] = [];
     await processFoodQueueJob(
@@ -29,6 +64,13 @@ describe("Cloudflare food Queue consumer", () => {
         },
       },
       {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
         analyze: async () => [oatmeal],
         publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
         savePending: async (entries) => {
@@ -67,6 +109,13 @@ describe("Cloudflare food Queue consumer", () => {
         },
       },
       {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
         analyze: async () => [oatmeal],
         publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
         savePending: async (entries) => {
@@ -107,6 +156,13 @@ describe("Cloudflare food Queue consumer", () => {
         },
       },
       {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
         analyze,
         publishClarification: async (input) => {
           clarifications.push(input);
@@ -163,6 +219,13 @@ describe("Cloudflare food Queue consumer", () => {
         },
       },
       {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
         consumeClarification: async () => ({ description: "1 hot dog" }),
         analyze: async (text) => {
           analyzed.push(text);
