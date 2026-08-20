@@ -42,6 +42,41 @@ curl http://127.0.0.1:3000/health
 Required configuration names are listed in `.env.example`; values are never
 committed. Startup fails immediately and names missing or invalid keys.
 
+## Cloudflare Workers deployment
+
+The Worker is configured in `wrangler.jsonc` and currently exposes only
+`GET /health` at the deployed Worker URL (for example,
+`https://slack-food-bot.<your-subdomain>.workers.dev/health`). Use the local
+preview or authenticated publication commands below:
+
+```sh
+pnpm dev:workers
+pnpm deploy:workers
+```
+
+Set each required Worker secret interactively before publishing; do not put
+values in `wrangler.jsonc`, source control, or shell history. The required
+names are `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`,
+`REDIS_URL`, `TARGET_API_BASE_URL`, `TARGET_API_CLIENT_CREDENTIAL`,
+`AI_PROVIDER`, and `AI_API_KEY`:
+
+```sh
+wrangler secret put SLACK_CLIENT_ID
+```
+
+Repeat `wrangler secret put <NAME>` for every required name. `PORT` is only for
+the Node HTTP server, while `TELEMETRY_ENVIRONMENT` is the non-secret Worker
+variable defined in `wrangler.jsonc`; `TELEMETRY_DSN` is optional and should be
+set with `wrangler secret put TELEMETRY_DSN` only when telemetry is enabled.
+
+Upstash Redis is future integration configuration only: no Upstash connection
+or Redis store is active in the Worker runtime today. Before planning traffic,
+review Cloudflare's current free-tier limits: 100,000 requests per day, 10 ms
+CPU time per HTTP request, 128 MB memory, 50 subrequests per invocation, and
+64 environment variables per Worker. Limits reset or change under Cloudflare's
+plan rules, so consult the [Workers limits documentation](https://developers.cloudflare.com/workers/platform/limits/)
+before production use.
+
 ## Boundaries
 
 - Pending food remains in bot-owned Redis until a future explicit confirmation
@@ -53,7 +88,5 @@ committed. Startup fails immediately and names missing or invalid keys.
 
 ## Handoff state
 
-This local worktree has no remote and no commits are being created. Add and
-verify a remote before asking for the first commit/push. The external API
-contract must also carry an explicit approval marker before implementing live
-Dofek transport.
+The external API contract must carry an explicit approval marker before
+implementing live Dofek transport.
