@@ -4,22 +4,26 @@ const requiredConfiguration = [
   "SLACK_CLIENT_ID",
   "SLACK_CLIENT_SECRET",
   "SLACK_SIGNING_SECRET",
+  "SLACK_STATE_SECRET",
   "REDIS_URL",
   "TARGET_API_BASE_URL",
   "TARGET_API_CLIENT_CREDENTIAL",
-  "AI_PROVIDER",
-  "AI_API_KEY",
+  "BOT_STATE_ENCRYPTION_KEY",
+  "PUBLIC_BASE_URL",
 ] as const;
 
 const configurationSchema = z.object({
   SLACK_CLIENT_ID: z.string().min(1),
   SLACK_CLIENT_SECRET: z.string().min(1),
   SLACK_SIGNING_SECRET: z.string().min(1),
+  SLACK_STATE_SECRET: z.string().min(32),
   REDIS_URL: z.url(),
   TARGET_API_BASE_URL: z.url(),
   TARGET_API_CLIENT_CREDENTIAL: z.string().min(1),
-  AI_PROVIDER: z.string().min(1),
-  AI_API_KEY: z.string().min(1),
+  BOT_STATE_ENCRYPTION_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  PUBLIC_BASE_URL: z.url().refine((value) => new URL(value).protocol === "https:"),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+  MISTRAL_API_KEY: z.string().min(1).optional(),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
   TELEMETRY_DSN: z.url().optional(),
   TELEMETRY_ENVIRONMENT: z.string().min(1).optional(),
@@ -30,6 +34,7 @@ export type AppConfig = {
     clientId: string;
     clientSecret: string;
     signingSecret: string;
+    stateSecret: string;
   };
   redisUrl: string;
   target: {
@@ -37,9 +42,13 @@ export type AppConfig = {
     clientCredential: string;
   };
   ai: {
-    provider: string;
-    apiKey: string;
+    geminiApiKey?: string;
+    mistralApiKey?: string;
   };
+  security: {
+    stateEncryptionKey: string;
+  };
+  publicBaseUrl: string;
   telemetry: {
     dsn?: string;
     environment?: string;
@@ -65,6 +74,10 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     throw new ConfigError(missingKeys);
   }
 
+  if (!env.GEMINI_API_KEY?.trim() && !env.MISTRAL_API_KEY?.trim()) {
+    throw new ConfigError(["GEMINI_API_KEY", "MISTRAL_API_KEY"]);
+  }
+
   const result = configurationSchema.safeParse(env);
   if (!result.success) {
     const invalidKeys = result.error.issues
@@ -79,6 +92,7 @@ export function loadConfig(env: Environment = process.env): AppConfig {
       clientId: value.SLACK_CLIENT_ID,
       clientSecret: value.SLACK_CLIENT_SECRET,
       signingSecret: value.SLACK_SIGNING_SECRET,
+      stateSecret: value.SLACK_STATE_SECRET,
     },
     redisUrl: value.REDIS_URL,
     target: {
@@ -86,9 +100,11 @@ export function loadConfig(env: Environment = process.env): AppConfig {
       clientCredential: value.TARGET_API_CLIENT_CREDENTIAL,
     },
     ai: {
-      provider: value.AI_PROVIDER,
-      apiKey: value.AI_API_KEY,
+      ...(value.GEMINI_API_KEY ? { geminiApiKey: value.GEMINI_API_KEY } : {}),
+      ...(value.MISTRAL_API_KEY ? { mistralApiKey: value.MISTRAL_API_KEY } : {}),
     },
+    security: { stateEncryptionKey: value.BOT_STATE_ENCRYPTION_KEY },
+    publicBaseUrl: value.PUBLIC_BASE_URL,
     telemetry: {
       ...(value.TELEMETRY_DSN ? { dsn: value.TELEMETRY_DSN } : {}),
       ...(value.TELEMETRY_ENVIRONMENT ? { environment: value.TELEMETRY_ENVIRONMENT } : {}),

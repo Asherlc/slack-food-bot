@@ -19,7 +19,12 @@
     "deploy:workers": "wrangler deploy"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.46",
+    "@ai-sdk/mistral": "^4.0.29",
     "@slack/bolt": "5.0.0",
+    "ai": "^7.0.69",
+    "bullmq": "^6.1.2",
+    "ioredis": "^6.0.0",
     "redis": "6.2.1",
     "zod": "4.4.3"
   },
