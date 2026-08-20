@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerSlackHandlers, type SlackActionArgs, type SlackEventArgs } from "./app.js";
+import {
+  registerSlackHandlers,
+  type SlackActionArgs,
+  type SlackCommandArgs,
+  type SlackEventArgs,
+} from "./app.js";
 
 class FakeSlackApp {
   readonly events = new Map<string, (args: SlackEventArgs) => Promise<void>>();
   readonly actions = new Map<string, (args: SlackActionArgs) => Promise<void>>();
+  readonly commands = new Map<string, (args: SlackCommandArgs) => Promise<void>>();
 
   event(name: string, handler: (args: SlackEventArgs) => Promise<void>): void {
     this.events.set(name, handler);
@@ -11,6 +17,10 @@ class FakeSlackApp {
 
   action(name: string, handler: (args: SlackActionArgs) => Promise<void>): void {
     this.actions.set(name, handler);
+  }
+
+  command(name: string, handler: (args: SlackCommandArgs) => Promise<void>): void {
+    this.commands.set(name, handler);
   }
 }
 
@@ -61,6 +71,36 @@ describe("Slack event registration", () => {
     expect(ack).toHaveBeenCalledBefore(enqueue);
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "confirm", entryIds: ["entry-1"] }),
+    );
+  });
+
+  it("acknowledges and starts a Dofek link command for the Slack identity", async () => {
+    const app = new FakeSlackApp();
+    const ack = vi.fn(async () => undefined);
+    const respond = vi.fn(async () => undefined);
+    const startLink = vi.fn(async () => ({
+      authorizationUrl: "https://dofek.example.test/authorize",
+    }));
+    registerSlackHandlers(app, {
+      queue: { enqueue: vi.fn() },
+      pending: { findIdsByMessage: vi.fn() },
+      now: () => ({ date: "2026-08-20", time: "08:00" }),
+      startLink,
+    });
+
+    await app.commands.get("/link-dofek")?.({
+      ack,
+      respond,
+      command: { team_id: "T1", user_id: "U1" },
+    });
+
+    expect(ack).toHaveBeenCalledBefore(startLink);
+    expect(startLink).toHaveBeenCalledWith({ namespace: "slack", subject: "T1:U1" });
+    expect(respond).toHaveBeenCalledWith(
+      expect.objectContaining({
+        response_type: "ephemeral",
+        text: expect.stringContaining("dofek.example"),
+      }),
     );
   });
 });

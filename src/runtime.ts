@@ -2,6 +2,7 @@ import { App, ExpressReceiver } from "@slack/bolt";
 import { createProductionNutritionAnalyzer } from "./ai/nutrition-analyzer.js";
 import type { AppConfig } from "./config.js";
 import { DofekClient } from "./dofek/client.js";
+import { completeSlackDofekLink, startSlackDofekLink } from "./dofek/link-flow.js";
 import { DofekLinkStore } from "./dofek/link-store.js";
 import { BullFoodJobQueue } from "./jobs/queue.js";
 import { createFoodWorker } from "./jobs/worker.js";
@@ -31,7 +32,7 @@ export function createApplicationRuntime(config: AppConfig) {
   const messenger = new InstalledSlackMessenger((teamId) => installations.fetchBotToken(teamId));
   const workflow = new FoodWorkflow({ analyzer, pending, grants, target, messenger });
   const queue = new BullFoodJobQueue(redis);
-  return { redis, installations, pending, workflow, queue };
+  return { redis, installations, pending, grants, workflowTarget: target, workflow, queue };
 }
 
 export function createWebRuntime(config: AppConfig) {
@@ -46,11 +47,37 @@ export function createWebRuntime(config: AppConfig) {
     scopes: ["app_mentions:read", "chat:write", "commands", "im:history"],
   });
   receiver.app.get("/health", (_request, response) => response.status(200).json({ status: "ok" }));
+  receiver.app.get("/dofek/link/callback", async (request, response) => {
+    try {
+      const state = queryValue(request.query.state);
+      const linkId = queryValue(request.query.link_id);
+      const code = queryValue(request.query.code);
+      if (!state || !linkId || !code)
+        return response.status(400).send("Invalid Dofek link callback.");
+      await completeSlackDofekLink({
+        target: runtime.workflowTarget,
+        store: runtime.grants,
+        state,
+        linkId,
+        code,
+      });
+      return response.status(200).send("Your Dofek account is linked. You can return to Slack.");
+    } catch {
+      return response.status(400).send("This Dofek link is invalid or expired.");
+    }
+  });
   const app = new App({ receiver });
   registerSlackHandlers(app as unknown as SlackRegistrar, {
     queue: runtime.queue,
     pending: runtime.pending,
     now: localDateTime,
+    startLink: (identity) =>
+      startSlackDofekLink({
+        target: runtime.workflowTarget,
+        store: runtime.grants,
+        identity,
+        redirectUri: `${config.publicBaseUrl}/dofek/link/callback`,
+      }),
   });
   return {
     start: () => receiver.start(config.port),
@@ -75,4 +102,8 @@ function localDateTime(now = new Date()): { date: string; time: string } {
   const date = now.toISOString().slice(0, 10);
   const time = now.toTimeString().slice(0, 5);
   return { date, time };
+}
+
+function queryValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }

@@ -12,9 +12,16 @@ export type SlackActionArgs = {
   body: Record<string, unknown>;
 };
 
+export type SlackCommandArgs = {
+  ack: () => Promise<unknown>;
+  respond: (message: { response_type: "ephemeral"; text: string }) => Promise<unknown>;
+  command: Record<string, unknown>;
+};
+
 export type SlackRegistrar = {
   event(name: string, handler: (args: SlackEventArgs) => Promise<void>): void;
   action(name: string, handler: (args: SlackActionArgs) => Promise<void>): void;
+  command(name: string, handler: (args: SlackCommandArgs) => Promise<void>): void;
 };
 
 export function registerSlackHandlers(
@@ -23,12 +30,37 @@ export function registerSlackHandlers(
     queue: FoodJobQueue;
     pending: Pick<PendingEntryStore, "findIdsByMessage">;
     now: () => { date: string; time: string };
+    startLink?: (identity: {
+      namespace: string;
+      subject: string;
+    }) => Promise<{ authorizationUrl: string }>;
   },
 ): void {
   app.event("app_mention", async (args) => enqueueFoodMessage(args, dependencies, true));
   app.event("message", async (args) => enqueueFoodMessage(args, dependencies, false));
   app.action("food_confirm", async (args) => enqueueAction(args, dependencies, "confirm"));
   app.action("food_cancel", async (args) => enqueueAction(args, dependencies, "cancel"));
+  const startLinkForIdentity = dependencies.startLink;
+  if (startLinkForIdentity)
+    app.command("/link-dofek", async (args) => startLink(args, startLinkForIdentity));
+}
+
+async function startLink(
+  args: SlackCommandArgs,
+  start: (identity: {
+    namespace: string;
+    subject: string;
+  }) => Promise<{ authorizationUrl: string }>,
+): Promise<void> {
+  await args.ack();
+  const teamId = stringField(args.command, "team_id");
+  const userId = stringField(args.command, "user_id");
+  if (!teamId || !userId) return;
+  const link = await start({ namespace: "slack", subject: `${teamId}:${userId}` });
+  await args.respond({
+    response_type: "ephemeral",
+    text: `Finish linking your Dofek account: ${link.authorizationUrl}`,
+  });
 }
 
 async function enqueueFoodMessage(
