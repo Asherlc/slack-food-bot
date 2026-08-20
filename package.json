@@ -15,8 +15,8 @@
     "lint": "biome check .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dev:workers": "wrangler dev",
-    "deploy:workers": "wrangler deploy"
+    "start": "node dist/src/index.js",
+    "start:worker": "node dist/src/worker.js"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.46",
@@ -33,7 +33,6 @@
     "@types/node": "26.2.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
-    "wrangler": "^4.124.0",
     "yaml": "^2.9.0"
   }
 }
