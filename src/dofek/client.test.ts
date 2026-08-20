@@ -69,4 +69,109 @@ describe("DofekClient", () => {
       }),
     );
   });
+
+  it("exchanges an approved PKCE link using the application identity", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        externalSubject: "opaque-subject",
+        grantId: "grant-1",
+        accessToken: "access-token",
+        tokenType: "Bearer",
+        expiresIn: 900,
+        scope: "nutrition:write",
+      }),
+    );
+    const client = new DofekClient({
+      baseUrl: "https://dofek.example.test",
+      clientCredential: "ext_client.secret",
+      fetch,
+    });
+
+    await expect(
+      client.exchangeIdentityLink({
+        linkId: "link-1",
+        code: "one-time-code",
+        codeVerifier: "a".repeat(43),
+        identity: { namespace: "slack", subject: "T1:U1" },
+      }),
+    ).resolves.toEqual({
+      externalSubject: "opaque-subject",
+      grantId: "grant-1",
+      accessToken: "access-token",
+      expiresInSeconds: 900,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dofek.example.test/api/external/v1/link/exchange",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer ext_client.secret" }),
+        body: JSON.stringify({
+          linkId: "link-1",
+          code: "one-time-code",
+          codeVerifier: "a".repeat(43),
+          externalSubject: { namespace: "slack", subject: "T1:U1" },
+        }),
+      }),
+    );
+  });
+
+  it("writes confirmed food with the grant bearer token and stable idempotency key", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        entries: [{ id: "entry-1", externalId: "draft-1" }],
+        dailyIntake: {
+          date: "2026-08-20",
+          state: "available",
+          summary: { calories: 320 },
+          resolution: { source: "server" },
+        },
+      }),
+    );
+    const client = new DofekClient({
+      baseUrl: "https://dofek.example.test",
+      clientCredential: "ext_client.secret",
+      fetch,
+    });
+    const entry = {
+      date: "2026-08-20",
+      meal: "breakfast" as const,
+      foodName: "Oatmeal",
+      foodDescription: "One bowl",
+      category: "breads_and_cereals" as const,
+      nutrients: { calories: 320 },
+      externalId: "draft-1",
+    };
+
+    await expect(
+      client.confirmFood({
+        grant: {
+          externalSubject: "opaque-subject",
+          grantId: "grant-1",
+          accessToken: "access-token",
+          expiresInSeconds: 900,
+        },
+        idempotencyKey: "confirmation-draft-1",
+        entries: [entry],
+      }),
+    ).resolves.toEqual({
+      entries: [{ id: "entry-1", externalId: "draft-1" }],
+      dailyIntake: {
+        date: "2026-08-20",
+        state: "available",
+        summary: { calories: 320 },
+        resolution: { source: "server" },
+      },
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://dofek.example.test/api/external/v1/nutrition/entries",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer access-token",
+          "Idempotency-Key": "confirmation-draft-1",
+        }),
+        body: JSON.stringify({ entries: [entry] }),
+      }),
+    );
+  });
 });
