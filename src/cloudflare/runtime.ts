@@ -11,6 +11,8 @@ export type CloudflareRuntimeEnv = {
   FOOD_BOT_DB: D1DatabaseLike;
   GEMINI_API_KEY?: string;
   MISTRAL_API_KEY?: string;
+  AI_PROVIDER?: string;
+  AI_API_KEY?: string;
   TARGET_API_BASE_URL: string;
   TARGET_API_CLIENT_CREDENTIAL: string;
 };
@@ -20,10 +22,7 @@ export async function processCloudflareFoodJob(
   env: CloudflareRuntimeEnv,
 ): Promise<void> {
   const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
-  const analyzer = createProductionNutritionAnalyzer({
-    ...(env.GEMINI_API_KEY ? { geminiApiKey: env.GEMINI_API_KEY } : {}),
-    ...(env.MISTRAL_API_KEY ? { mistralApiKey: env.MISTRAL_API_KEY } : {}),
-  });
+  const analyzer = createProductionNutritionAnalyzer(resolveAiCredentials(env));
   const target = new DofekClient({
     baseUrl: env.TARGET_API_BASE_URL,
     clientCredential: env.TARGET_API_CLIENT_CREDENTIAL,
@@ -41,6 +40,27 @@ export async function processCloudflareFoodJob(
     confirmFood: (input) => target.confirmFood(input),
     publishConfirmed: (input) => messenger.publishConfirmed(input),
   });
+}
+
+export function resolveAiCredentials(
+  env: Pick<
+    CloudflareRuntimeEnv,
+    "GEMINI_API_KEY" | "MISTRAL_API_KEY" | "AI_PROVIDER" | "AI_API_KEY"
+  >,
+): {
+  geminiApiKey?: string;
+  mistralApiKey?: string;
+} {
+  const provider = env.AI_PROVIDER?.toLowerCase();
+  return {
+    ...(env.GEMINI_API_KEY ||
+    (provider === "gemini" || provider === "google" ? env.AI_API_KEY : undefined)
+      ? { geminiApiKey: env.GEMINI_API_KEY ?? env.AI_API_KEY }
+      : {}),
+    ...(env.MISTRAL_API_KEY || provider === "mistral"
+      ? { mistralApiKey: env.MISTRAL_API_KEY ?? env.AI_API_KEY }
+      : {}),
+  };
 }
 
 type SlackInstallation = { botToken: string };

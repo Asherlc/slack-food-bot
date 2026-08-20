@@ -16,6 +16,7 @@
     "consumers": [{ "queue": "food-jobs", "max_batch_size": 10, "max_retries": 4 }]
   },
   "vars": {
-    "TELEMETRY_ENVIRONMENT": "production"
+    "TELEMETRY_ENVIRONMENT": "production",
+    "PUBLIC_BASE_URL": "https://slack-food-bot.slack-food-bot.workers.dev"
   }
 }
