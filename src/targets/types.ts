@@ -106,6 +106,7 @@ export interface NutritionTarget {
     redirectUri: string;
     codeChallenge: string;
     requestedScopes: ReadonlyArray<string>;
+    state?: string;
   }): Promise<IdentityLinkStart>;
 
   exchangeIdentityLink(input: {

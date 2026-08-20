@@ -56,6 +56,7 @@ export class DofekClient
     redirectUri: string;
     codeChallenge: string;
     requestedScopes: ReadonlyArray<string>;
+    state?: string;
   }): Promise<IdentityLinkStart> {
     const response = await this.#fetch(`${this.#baseUrl}/api/external/v1/link/start`, {
       method: "POST",

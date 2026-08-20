@@ -3,14 +3,22 @@ import { EncryptedJsonStore, type StringRedisClient } from "./encrypted-json-sto
 
 class MemoryRedis implements StringRedisClient {
   readonly values = new Map<string, string>();
+  readonly setOptions = new Map<string, { PX: number } | undefined>();
 
   async get(key: string): Promise<string | null> {
     return this.values.get(key) ?? null;
   }
 
-  async set(key: string, value: string): Promise<"OK"> {
+  async set(key: string, value: string, options?: { PX: number }): Promise<"OK"> {
     this.values.set(key, value);
+    this.setOptions.set(key, options);
     return "OK";
+  }
+
+  async getDel(key: string): Promise<string | null> {
+    const value = this.values.get(key) ?? null;
+    this.values.delete(key);
+    return value;
   }
 
   async del(key: string): Promise<number> {
@@ -38,5 +46,18 @@ describe("EncryptedJsonStore", () => {
     const store = new EncryptedJsonStore(new MemoryRedis(), Buffer.alloc(32, 4));
 
     await expect(store.get("missing")).resolves.toBeNull();
+  });
+
+  it("expires a secret record and consumes it only once", async () => {
+    const redis = new MemoryRedis();
+    const store = new EncryptedJsonStore(redis, Buffer.alloc(32, 4));
+
+    await store.set("link:state", { verifier: "secret" }, { ttlMs: 900_000 });
+
+    expect(redis.setOptions.get("link:state")).toEqual({ PX: 900_000 });
+    await expect(store.take<{ verifier: string }>("link:state")).resolves.toEqual({
+      verifier: "secret",
+    });
+    await expect(store.take("link:state")).resolves.toBeNull();
   });
 });
