@@ -63,7 +63,7 @@ class MemoryD1 implements D1DatabaseLike {
   }
 }
 
-const encryptionKey = "REDACTED_TEST_ENCRYPTION_KEY";
+const encryptionKey = testEncryptionKey();
 
 describe("CloudflareStore", () => {
   it("encrypts Slack installations before storing and restores them", async () => {
@@ -126,3 +126,10 @@ describe("CloudflareStore", () => {
     await expect(store.findPending("D1", "2.0")).resolves.toEqual([]);
   });
 });
+
+function testEncryptionKey(): string {
+  return btoa("0123456789abcdef0123456789abcdef")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}

@@ -5,7 +5,7 @@ const env: CloudflareEnv = {
   SLACK_SIGNING_SECRET: "signing-secret",
   SLACK_CLIENT_ID: "client-id",
   SLACK_CLIENT_SECRET: "client-secret",
-  BOT_STATE_ENCRYPTION_KEY: "REDACTED_TEST_ENCRYPTION_KEY",
+  BOT_STATE_ENCRYPTION_KEY: testEncryptionKey(),
   TARGET_API_BASE_URL: "https://dofek.example",
   TARGET_API_CLIENT_CREDENTIAL: "client.credential",
   PUBLIC_BASE_URL: "https://food-bot.example",
@@ -29,3 +29,10 @@ describe("Cloudflare Worker", () => {
     await expect(response.json()).resolves.toEqual({ status: "ok" });
   });
 });
+
+function testEncryptionKey(): string {
+  return btoa("0123456789abcdef0123456789abcdef")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
