@@ -1,7 +1,11 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import { type AppConfig, loadConfig } from "./config.js";
+import { createNotFoundResponse, handleHealthRequest } from "./http/health-handler.js";
 import { createExceptionReporter } from "./telemetry.js";
+
+const nodeRequestOrigin = "http://127.0.0.1";
+const fetchForbiddenMethods = new Set(["CONNECT", "TRACE", "TRACK"]);
 
 export type HealthServer = {
   port: number;
@@ -10,13 +14,9 @@ export type HealthServer = {
 
 export async function createHealthServer(options: { port?: number } = {}): Promise<HealthServer> {
   const server = createServer((request, response) => {
-    if (request.method === "GET" && request.url === "/health") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify({ status: "ok" }));
-      return;
-    }
-    response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
-    response.end(JSON.stringify({ error: "Not found" }));
+    void respondToNodeRequest(request, response).catch(() => {
+      response.destroy();
+    });
   });
 
   await listen(server, options.port ?? 3000);
@@ -30,6 +30,32 @@ export async function createHealthServer(options: { port?: number } = {}): Promi
     port: address.port,
     close: () => closeServer(server),
   };
+}
+
+async function respondToNodeRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  let handled: Response;
+
+  try {
+    const method = request.method ?? "GET";
+    const hasMalformedHost = request.headers.host
+      ? !URL.canParse(`http://${request.headers.host}`)
+      : false;
+
+    handled =
+      hasMalformedHost || fetchForbiddenMethods.has(method.toUpperCase())
+        ? createNotFoundResponse()
+        : handleHealthRequest(
+            new Request(new URL(request.url ?? "/", nodeRequestOrigin), { method }),
+          );
+  } catch {
+    handled = createNotFoundResponse();
+  }
+
+  response.writeHead(handled.status, Object.fromEntries(handled.headers));
+  response.end(await handled.text());
 }
 
 export function startApplication(env: NodeJS.ProcessEnv = process.env): Promise<HealthServer> {

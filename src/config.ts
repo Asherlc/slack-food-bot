@@ -47,6 +47,8 @@ export type AppConfig = {
   port: number;
 };
 
+export type Environment = Readonly<Record<string, string | undefined>>;
+
 export class ConfigError extends Error {
   readonly missingKeys: readonly string[];
 
@@ -57,7 +59,7 @@ export class ConfigError extends Error {
   }
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+export function loadConfig(env: Environment = process.env): AppConfig {
   const missingKeys = requiredConfiguration.filter((key) => !env[key]?.trim());
   if (missingKeys.length > 0) {
     throw new ConfigError(missingKeys);
