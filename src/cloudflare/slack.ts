@@ -1,8 +1,15 @@
-export type SlackQueueJob = {
-  kind: "event";
-  deliveryId: string;
-  payload: Record<string, unknown>;
-};
+export type SlackQueueJob =
+  | {
+      kind: "event";
+      deliveryId: string;
+      payload: Record<string, unknown>;
+    }
+  | {
+      kind: "action";
+      action: "confirm" | "cancel";
+      deliveryId: string;
+      payload: Record<string, unknown>;
+    };
 
 export async function handleSlackRequest(
   request: Request,
@@ -12,12 +19,15 @@ export async function handleSlackRequest(
     enqueue(job: SlackQueueJob): Promise<void>;
   },
 ): Promise<Response> {
-  if (request.method !== "POST" || new URL(request.url).pathname !== "/slack/events")
-    return notFound();
+  if (request.method !== "POST") return notFound();
+  const path = new URL(request.url).pathname;
+  if (path !== "/slack/events" && path !== "/slack/actions") return notFound();
 
   const body = await request.text();
   if (!(await hasValidSignature(request.headers, body, dependencies.signingSecret)))
     return unauthorized();
+
+  if (path === "/slack/actions") return handleAction(body, dependencies);
 
   let payload: Record<string, unknown>;
   try {
@@ -36,6 +46,33 @@ export async function handleSlackRequest(
   if (!deliveryId) return badRequest();
   if (!(await dependencies.recordDelivery(deliveryId))) return Response.json({ ok: true });
   await dependencies.enqueue({ kind: "event", deliveryId, payload });
+  return Response.json({ ok: true });
+}
+
+async function handleAction(
+  body: string,
+  dependencies: {
+    recordDelivery(deliveryId: string): Promise<boolean>;
+    enqueue(job: SlackQueueJob): Promise<void>;
+  },
+): Promise<Response> {
+  let payload: Record<string, unknown>;
+  try {
+    const encoded = new URLSearchParams(body).get("payload");
+    payload = asObject(JSON.parse(encoded ?? ""));
+  } catch {
+    return badRequest();
+  }
+  const actionId = nestedString(payload, "actions", 0, "action_id");
+  const action =
+    actionId === "food_confirm" ? "confirm" : actionId === "food_cancel" ? "cancel" : null;
+  const teamId = nestedString(payload, "team", "id");
+  const userId = nestedString(payload, "user", "id");
+  const messageTs = nestedString(payload, "container", "message_ts");
+  if (!action || !teamId || !userId || !messageTs) return badRequest();
+  const deliveryId = `action:${action}:${teamId}:${userId}:${messageTs}`;
+  if (await dependencies.recordDelivery(deliveryId))
+    await dependencies.enqueue({ kind: "action", action, deliveryId, payload });
   return Response.json({ ok: true });
 }
 
@@ -75,6 +112,24 @@ function asObject(value: unknown): Record<string, unknown> {
 function stringField(value: Record<string, unknown>, key: string): string | undefined {
   const field = value[key];
   return typeof field === "string" && field.length > 0 ? field : undefined;
+}
+
+function nestedString(
+  value: Record<string, unknown>,
+  key: string,
+  nestedKey: string | number,
+  childKey?: string,
+): string | undefined {
+  const nested = value[key];
+  if (Array.isArray(nested) && typeof nestedKey === "number") {
+    const child = nested[nestedKey];
+    return child && typeof child === "object" && childKey
+      ? stringField(child as Record<string, unknown>, childKey)
+      : undefined;
+  }
+  return nested && typeof nested === "object" && typeof nestedKey === "string"
+    ? stringField(nested as Record<string, unknown>, nestedKey)
+    : undefined;
 }
 
 function fromHex(value: string): Uint8Array {

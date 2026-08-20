@@ -58,6 +58,24 @@ export class CloudflareStore {
     return row ? decrypt<T>(this.#encryptionKey, row.ciphertext) : null;
   }
 
+  async saveGrant(subject: string, grant: unknown): Promise<void> {
+    const ciphertext = await encrypt(this.#encryptionKey, grant);
+    await this.#database
+      .prepare(
+        "INSERT INTO grants (subject, ciphertext) VALUES (?, ?) ON CONFLICT(subject) DO UPDATE SET ciphertext = excluded.ciphertext, updated_at = unixepoch()",
+      )
+      .bind(subject, ciphertext)
+      .run();
+  }
+
+  async loadGrant<T>(subject: string): Promise<T | null> {
+    const row = await this.#database
+      .prepare("SELECT ciphertext FROM grants WHERE subject = ?")
+      .bind(subject)
+      .first<CiphertextRow>();
+    return row ? decrypt<T>(this.#encryptionKey, row.ciphertext) : null;
+  }
+
   async recordDelivery(deliveryId: string): Promise<boolean> {
     const result = await this.#database
       .prepare(

@@ -3,6 +3,7 @@ import { CloudflareStore, type D1DatabaseLike } from "./store.js";
 
 class MemoryD1 implements D1DatabaseLike {
   readonly installations = new Map<string, string>();
+  readonly grants = new Map<string, string>();
   readonly links = new Map<string, string>();
   readonly values: string[] = [];
   readonly deliveries = new Set<string>();
@@ -13,6 +14,10 @@ class MemoryD1 implements D1DatabaseLike {
         first: async <T>() => {
           if (query.includes("FROM installations")) {
             const value = this.installations.get(String(values[0]));
+            return value ? ({ ciphertext: value } as T) : null;
+          }
+          if (query.includes("FROM grants")) {
+            const value = this.grants.get(String(values[0]));
             return value ? ({ ciphertext: value } as T) : null;
           }
           if (query.includes("DELETE FROM links")) {
@@ -26,6 +31,7 @@ class MemoryD1 implements D1DatabaseLike {
           this.values.push(...values.map(String));
           if (query.includes("INTO installations"))
             this.installations.set(String(values[0]), String(values[1]));
+          if (query.includes("INTO grants")) this.grants.set(String(values[0]), String(values[1]));
           if (query.includes("INTO links")) this.links.set(String(values[0]), String(values[1]));
           if (query.includes("INTO deliveries")) {
             const deliveryId = String(values[0]);
@@ -71,5 +77,16 @@ describe("CloudflareStore", () => {
 
     await expect(store.recordDelivery("Ev1")).resolves.toBe(true);
     await expect(store.recordDelivery("Ev1")).resolves.toBe(false);
+  });
+
+  it("encrypts and restores a Dofek grant by Slack identity", async () => {
+    const database = new MemoryD1();
+    const store = new CloudflareStore(database, encryptionKey);
+    const grant = { accessToken: "dofek-secret", grantId: "grant-1" };
+
+    await store.saveGrant("T1:U1", grant);
+
+    expect(database.values.join(" ")).not.toContain("dofek-secret");
+    await expect(store.loadGrant<typeof grant>("T1:U1")).resolves.toEqual(grant);
   });
 });

@@ -3,7 +3,11 @@ import { handleSlackRequest } from "./slack.js";
 
 const signingSecret = "slack-signing-secret";
 
-async function signedRequest(path: string, body: string): Promise<Request> {
+async function signedRequest(
+  path: string,
+  body: string,
+  contentType = "application/json",
+): Promise<Request> {
   const timestamp = Math.floor(Date.now() / 1_000).toString();
   const message = new TextEncoder().encode(`v0:${timestamp}:${body}`);
   const key = await crypto.subtle.importKey(
@@ -18,7 +22,7 @@ async function signedRequest(path: string, body: string): Promise<Request> {
   return new Request(`https://food-bot.example${path}`, {
     method: "POST",
     headers: {
-      "content-type": "application/json",
+      "content-type": contentType,
       "x-slack-request-timestamp": timestamp,
       "x-slack-signature": `v0=${digest}`,
     },
@@ -79,5 +83,32 @@ describe("Slack Worker endpoint", () => {
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+  });
+
+  it("acknowledges a confirm action and queues its signed payload", async () => {
+    const jobs: unknown[] = [];
+    const payload = JSON.stringify({
+      team: { id: "T1" },
+      user: { id: "U1" },
+      container: { channel_id: "D1", message_ts: "2.0" },
+      actions: [{ action_id: "food_confirm" }],
+    });
+    const response = await handleSlackRequest(
+      await signedRequest(
+        "/slack/actions",
+        `payload=${encodeURIComponent(payload)}`,
+        "application/x-www-form-urlencoded",
+      ),
+      {
+        signingSecret,
+        recordDelivery: async () => true,
+        enqueue: async (job) => {
+          jobs.push(job);
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(jobs).toEqual([expect.objectContaining({ kind: "action", action: "confirm" })]);
   });
 });
