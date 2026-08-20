@@ -35,6 +35,13 @@ development-safe `TELEMETRY_ENVIRONMENT` variable. Secrets remain absent from
 source control and must be supplied with `wrangler secret put` or through the
 Cloudflare dashboard.
 
+GitHub Actions supplies continuous deployment. Existing CI continues to run on
+pushes and pull requests. A separate deploy workflow triggers only when a CI
+run for the `main` branch succeeds, checks out that exact tested commit, and
+uses Wrangler to publish the Worker. It receives only `CLOUDFLARE_API_TOKEN`
+and `CLOUDFLARE_ACCOUNT_ID` from GitHub repository secrets. Runtime secrets
+remain solely in Cloudflare and are never copied to GitHub.
+
 ## Components
 
 ### `src/http/health-handler.ts`
@@ -64,6 +71,15 @@ no error details or secret names are disclosed remotely.
 environment input type. `wrangler.jsonc`, a `wrangler` development dependency,
 and `deploy:workers` / `dev:workers` package scripts support local preview and
 deployment.
+
+### Continuous deployment
+
+`.github/workflows/deploy-workers.yml` reacts to successful completion of the
+existing CI workflow for `main`. It verifies that the source workflow succeeded
+and targets the default repository before invoking `pnpm deploy:workers`.
+GitHub concurrency limits deployments to one active publish, retaining the
+latest queued commit. The workflow has the minimum permissions needed to read
+the tested revision and does not run for pull requests.
 
 ## Data Flow
 
@@ -101,3 +117,8 @@ Deploy through `pnpm deploy:workers` after authenticating Wrangler and setting
 all required secrets in the Cloudflare Worker. The resulting Worker URL can be
 used for `GET /health`. Upstash Redis setup is documented but intentionally
 not connected to runtime code until a later approved Slack workflow change.
+
+For CD, configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as GitHub
+repository secrets. The token needs permission to edit Workers scripts for the
+configured Cloudflare account. A push to `main` is deployed only after the
+repository's CI workflow succeeds for that revision.
