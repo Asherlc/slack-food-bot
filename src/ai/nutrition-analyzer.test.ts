@@ -83,7 +83,14 @@ describe("NutritionAnalyzer", () => {
     await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
     expect(workersAi.run).toHaveBeenCalledWith(
       "@cf/meta/llama-3.1-8b-instruct-fast",
-      expect.objectContaining({ response_format: { type: "json_object" } }),
+      expect.objectContaining({
+        response_format: expect.objectContaining({
+          type: "json_schema",
+          json_schema: expect.objectContaining({
+            properties: expect.objectContaining({ items: expect.any(Object) }),
+          }),
+        }),
+      }),
     );
   });
 });

@@ -6,6 +6,7 @@ import { parseNutritionItems } from "../nutrition/parser.js";
 import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
+const nutritionResultJsonSchema = z.toJSONSchema(nutritionResultSchema);
 
 export type NutritionGeneration =
   | { kind: "analyze"; text: string; localTime: string }
@@ -101,8 +102,8 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
   return {
     async generate(input) {
       const result = await binding.run("@cf/meta/llama-3.1-8b-instruct-fast", {
-        messages: [{ role: "user", content: `${promptFor(input)}\nReturn JSON: {"items":[...]}.` }],
-        response_format: { type: "json_object" },
+        messages: [{ role: "user", content: promptFor(input) }],
+        response_format: { type: "json_schema", json_schema: nutritionResultJsonSchema },
       });
       if (typeof result.response === "string") return JSON.parse(result.response);
       return result.response;
