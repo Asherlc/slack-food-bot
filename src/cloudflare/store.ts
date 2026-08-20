@@ -12,6 +12,13 @@ export type D1DatabaseLike = {
 
 type CiphertextRow = { ciphertext: string };
 
+type ClarificationKey = {
+  teamId: string;
+  channelId: string;
+  threadTs: string;
+  userId: string;
+};
+
 export type PendingRecord = {
   id: string;
   channelId: string;
@@ -63,6 +70,14 @@ export class CloudflareStore {
       .bind(state)
       .first<CiphertextRow>();
     return row ? decrypt<T>(this.#encryptionKey, row.ciphertext) : null;
+  }
+
+  async saveClarification(input: ClarificationKey & { description: string }): Promise<void> {
+    await this.saveLink(clarificationState(input), { description: input.description }, 3_600);
+  }
+
+  async consumeClarification(input: ClarificationKey): Promise<{ description: string } | null> {
+    return this.consumeLink<{ description: string }>(clarificationState(input));
   }
 
   async saveGrant(subject: string, grant: unknown): Promise<void> {
@@ -128,6 +143,10 @@ export class CloudflareStore {
       .run();
     return result.meta.changes === 1;
   }
+}
+
+function clarificationState(input: ClarificationKey): string {
+  return `clarification:${input.teamId}:${input.channelId}:${input.threadTs}:${input.userId}`;
 }
 
 async function encrypt(encryptionKey: string, value: unknown): Promise<string> {

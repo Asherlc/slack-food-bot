@@ -90,6 +90,26 @@ describe("CloudflareStore", () => {
     await expect(store.consumeLink("state-1")).resolves.toBeNull();
   });
 
+  it("consumes an encrypted clarification only for the matching Slack thread and user", async () => {
+    const store = new CloudflareStore(new MemoryD1(), encryptionKey);
+    const clarification = {
+      teamId: "T1",
+      channelId: "D1",
+      threadTs: "1.0",
+      userId: "U1",
+      description: "1 hot dog",
+    };
+
+    await store.saveClarification(clarification);
+
+    await expect(
+      store.consumeClarification({ ...clarification, userId: "U2" }),
+    ).resolves.toBeNull();
+    await expect(store.consumeClarification(clarification)).resolves.toEqual({
+      description: "1 hot dog",
+    });
+  });
+
   it("accepts each Slack delivery ID once", async () => {
     const store = new CloudflareStore(new MemoryD1(), encryptionKey);
 

@@ -87,6 +87,7 @@ describe("Cloudflare food Queue consumer", () => {
 
   it("asks for components instead of estimating a bare multi-word food label", async () => {
     const clarifications: unknown[] = [];
+    const clarificationStates: unknown[] = [];
     const analyze = vi.fn(async () => [oatmeal]);
     const saved: unknown[] = [];
     await processFoodQueueJob(
@@ -110,6 +111,9 @@ describe("Cloudflare food Queue consumer", () => {
         publishClarification: async (input) => {
           clarifications.push(input);
         },
+        saveClarification: async (input) => {
+          clarificationStates.push(input);
+        },
         publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
         savePending: async (entries) => {
           saved.push(...entries);
@@ -127,6 +131,57 @@ describe("Cloudflare food Queue consumer", () => {
     ]);
     expect(analyze).not.toHaveBeenCalled();
     expect(saved).toEqual([]);
+    expect(clarificationStates).toEqual([
+      {
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1710000000.000001",
+        userId: "U1",
+        description: "1 hot dog",
+      },
+    ]);
+  });
+
+  it("combines a clarification reply with the original food description", async () => {
+    const analyzed: string[] = [];
+    const saved: unknown[] = [];
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvClarificationReply",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1710000002.000001",
+            thread_ts: "1710000000.000001",
+            text: "no bun",
+          },
+        },
+      },
+      {
+        consumeClarification: async () => ({ description: "1 hot dog" }),
+        analyze: async (text) => {
+          analyzed.push(text);
+          return [oatmeal];
+        },
+        publishDraft: async () => ({ confirmationMessageTs: "1710000003.000001" }),
+        savePending: async (entries) => {
+          saved.push(...entries);
+        },
+      },
+    );
+
+    expect(analyzed).toEqual(["1 hot dog\nClarification: no bun"]);
+    expect(saved).toEqual([
+      expect.objectContaining({
+        sourceMessageTs: "1710000002.000001",
+        threadTs: "1710000000.000001",
+      }),
+    ]);
   });
 
   it("confirms only the action owner's pending draft with one stable Dofek write", async () => {

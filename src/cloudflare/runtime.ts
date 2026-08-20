@@ -37,6 +37,8 @@ export async function processCloudflareFoodJob(
   const messenger = new CloudflareSlackMessenger(store);
   await processFoodQueueJob(job, {
     analyze: (text, localTime) => analyzer.analyze(text, localTime),
+    saveClarification: (input) => store.saveClarification(input),
+    consumeClarification: (input) => store.consumeClarification(input),
     publishDraft: (input) => messenger.publishDraft(input),
     publishClarification: (input) => messenger.publishClarification(input),
     savePending: (entries) => store.savePending(entries, 86_400),

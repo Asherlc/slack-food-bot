@@ -18,6 +18,19 @@ export type CloudflarePendingEntry = PendingRecord & {
 
 type ConsumerDependencies = Partial<{
   analyze(text: string, localTime: string): Promise<NutritionItem[]>;
+  saveClarification(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+    userId: string;
+    description: string;
+  }): Promise<void>;
+  consumeClarification(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+    userId: string;
+  }): Promise<{ description: string } | null>;
   publishDraft(input: {
     teamId: string;
     channelId: string;
@@ -82,16 +95,30 @@ async function processEvent(
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   if (!text) return;
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
-  if (needsIngredientClarification(text)) {
-    if (!dependencies.publishClarification)
+  const clarification = await dependencies.consumeClarification?.({
+    teamId,
+    channelId,
+    threadTs,
+    userId,
+  });
+  if (!clarification && needsIngredientClarification(text)) {
+    if (!dependencies.saveClarification || !dependencies.publishClarification)
       throw new Error("Cloudflare clarification workflow is not configured");
+    await dependencies.saveClarification({
+      teamId,
+      channelId,
+      threadTs,
+      userId,
+      description: text,
+    });
     await dependencies.publishClarification({ teamId, channelId, threadTs, description: text });
     return;
   }
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
   if (Number.isNaN(time.valueOf())) return;
-  const items = await dependencies.analyze(text, time.toTimeString().slice(0, 5));
+  const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
+  const items = await dependencies.analyze(description, time.toTimeString().slice(0, 5));
   const draft = await dependencies.publishDraft({ teamId, channelId, threadTs, items });
   await dependencies.savePending(
     items.map((item, index) => ({
