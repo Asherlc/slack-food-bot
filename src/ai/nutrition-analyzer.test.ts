@@ -92,5 +92,7 @@ describe("NutritionAnalyzer", () => {
         }),
       }),
     );
+    const firstRequest = workersAi.run.mock.calls[0] as unknown as [string, unknown] | undefined;
+    expect(JSON.stringify(firstRequest?.[1])).not.toContain("propertyNames");
   });
 });

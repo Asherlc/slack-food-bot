@@ -6,7 +6,9 @@ import { parseNutritionItems } from "../nutrition/parser.js";
 import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
-const nutritionResultJsonSchema = z.toJSONSchema(nutritionResultSchema);
+const nutritionResultJsonSchema = removeUnsupportedWorkersAiSchemaKeywords(
+  z.toJSONSchema(nutritionResultSchema),
+);
 
 export type NutritionGeneration =
   | { kind: "analyze"; text: string; localTime: string }
@@ -109,6 +111,16 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
       return result.response;
     },
   };
+}
+
+function removeUnsupportedWorkersAiSchemaKeywords(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(removeUnsupportedWorkersAiSchemaKeywords);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "propertyNames")
+      .map(([key, nested]) => [key, removeUnsupportedWorkersAiSchemaKeywords(nested)]),
+  );
 }
 
 function createAiSdkGenerator(
