@@ -1,12 +1,17 @@
 {
   "display_information": {
-    "name": "Dofek Food Bot",
-    "description": "Capture food from Slack and save it to Dofek after confirmation.",
+    "name": "Slack Food Bot",
+    "description": "Capture food from Slack and save it after confirmation.",
     "background_color": "#1D4ED8"
   },
   "features": {
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
     "bot_user": {
-      "display_name": "Dofek Food Bot",
+      "display_name": "Slack Food Bot",
       "always_online": false
     },
     "slash_commands": [
