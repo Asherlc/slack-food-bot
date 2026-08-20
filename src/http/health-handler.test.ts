@@ -10,6 +10,15 @@ describe("handleHealthRequest", () => {
     await expect(response.json()).resolves.toEqual({ status: "ok" });
   });
 
+  it("rejects POST /health with the standard not-found response", async () => {
+    const response = handleHealthRequest(
+      new Request("https://bot.example/health", { method: "POST" }),
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Not found" });
+  });
+
   it("returns the standard not-found response for other requests", async () => {
     const response = handleHealthRequest(new Request("https://bot.example/not-found"));
 
