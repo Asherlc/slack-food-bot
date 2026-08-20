@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { NutritionAnalyzer, type NutritionGenerator } from "./nutrition-analyzer.js";
+import {
+  createProductionNutritionAnalyzer,
+  NutritionAnalyzer,
+  type NutritionGenerator,
+} from "./nutrition-analyzer.js";
 
 const items = [
   {
@@ -65,6 +69,21 @@ describe("NutritionAnalyzer", () => {
 
     await expect(analyzer.analyze("ran 5k and ate oatmeal", "08:00")).rejects.toThrow(
       /intake nutrients/,
+    );
+  });
+
+  it("uses a Workers AI binding when external model keys are unavailable", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { items } })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
+    expect(workersAi.run).toHaveBeenCalledWith(
+      "@cf/meta/llama-3.1-8b-instruct-fast",
+      expect.objectContaining({ response_format: { type: "json_object" } }),
     );
   });
 });

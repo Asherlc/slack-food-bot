@@ -15,6 +15,9 @@
     "producers": [{ "binding": "FOOD_JOBS", "queue": "food-jobs" }],
     "consumers": [{ "queue": "food-jobs", "max_batch_size": 10, "max_retries": 4 }]
   },
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     "TELEMETRY_ENVIRONMENT": "production",
     "PUBLIC_BASE_URL": "https://slack-food-bot.slack-food-bot.workers.dev"

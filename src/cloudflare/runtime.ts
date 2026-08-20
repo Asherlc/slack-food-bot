@@ -1,4 +1,7 @@
-import { createProductionNutritionAnalyzer } from "../ai/nutrition-analyzer.js";
+import {
+  createProductionNutritionAnalyzer,
+  type WorkersAiBinding,
+} from "../ai/nutrition-analyzer.js";
 import { DofekClient } from "../dofek/client.js";
 import { formatConfirmation, formatDraft } from "../slack/formatting.js";
 import type { ConfirmedNutritionWrite, NutritionItem } from "../targets/types.js";
@@ -9,6 +12,7 @@ import { CloudflareStore, type D1DatabaseLike } from "./store.js";
 export type CloudflareRuntimeEnv = {
   BOT_STATE_ENCRYPTION_KEY: string;
   FOOD_BOT_DB: D1DatabaseLike;
+  AI?: WorkersAiBinding;
   GEMINI_API_KEY?: string;
   MISTRAL_API_KEY?: string;
   AI_PROVIDER?: string;
@@ -22,7 +26,10 @@ export async function processCloudflareFoodJob(
   env: CloudflareRuntimeEnv,
 ): Promise<void> {
   const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
-  const analyzer = createProductionNutritionAnalyzer(resolveAiCredentials(env));
+  const analyzer = createProductionNutritionAnalyzer({
+    ...resolveAiCredentials(env),
+    ...(env.AI ? { workersAi: env.AI } : {}),
+  });
   const target = new DofekClient({
     baseUrl: env.TARGET_API_BASE_URL,
     clientCredential: env.TARGET_API_CLIENT_CREDENTIAL,

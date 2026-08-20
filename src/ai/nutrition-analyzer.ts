@@ -20,14 +20,25 @@ export type NutritionGenerator = {
   generate(input: NutritionGeneration): Promise<unknown>;
 };
 
+export type WorkersAiBinding = {
+  run(model: string, input: Record<string, unknown>): Promise<{ response?: unknown }>;
+};
+
 export class NutritionAnalyzer {
   readonly #gemini: NutritionGenerator | undefined;
   readonly #mistral: NutritionGenerator | undefined;
+  readonly #workersAi: NutritionGenerator | undefined;
 
-  constructor(input: { gemini?: NutritionGenerator; mistral?: NutritionGenerator }) {
-    if (!input.gemini && !input.mistral) throw new Error("A nutrition model is required");
+  constructor(input: {
+    gemini?: NutritionGenerator;
+    mistral?: NutritionGenerator;
+    workersAi?: NutritionGenerator;
+  }) {
+    if (!input.gemini && !input.mistral && !input.workersAi)
+      throw new Error("A nutrition model is required");
     this.#gemini = input.gemini;
     this.#mistral = input.mistral;
+    this.#workersAi = input.workersAi;
   }
 
   async analyze(text: string, localTime: string): Promise<NutritionItem[]> {
@@ -45,15 +56,19 @@ export class NutritionAnalyzer {
   async #generate(input: NutritionGeneration): Promise<NutritionItem[]> {
     const gemini = this.#gemini;
     const mistral = this.#mistral;
+    const workersAi = this.#workersAi;
     if (!gemini) {
-      if (!mistral) throw new Error("A nutrition model is required");
-      return parseNutritionItems(await mistral.generate(input));
+      if (mistral) return parseNutritionItems(await mistral.generate(input));
+      if (workersAi) return parseNutritionItems(await workersAi.generate(input));
+      throw new Error("A nutrition model is required");
     }
     try {
       return parseNutritionItems(await gemini.generate(input));
     } catch (error) {
-      if (!mistral || !isRateLimited(error)) throw error;
-      return parseNutritionItems(await mistral.generate(input));
+      if (!isRateLimited(error)) throw error;
+      if (mistral) return parseNutritionItems(await mistral.generate(input));
+      if (workersAi) return parseNutritionItems(await workersAi.generate(input));
+      throw error;
     }
   }
 }
@@ -61,6 +76,7 @@ export class NutritionAnalyzer {
 export function createProductionNutritionAnalyzer(input: {
   geminiApiKey?: string;
   mistralApiKey?: string;
+  workersAi?: WorkersAiBinding;
 }): NutritionAnalyzer {
   return new NutritionAnalyzer({
     ...(input.geminiApiKey
@@ -77,7 +93,21 @@ export function createProductionNutritionAnalyzer(input: {
           ),
         }
       : {}),
+    ...(input.workersAi ? { workersAi: createWorkersAiGenerator(input.workersAi) } : {}),
   });
+}
+
+function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator {
+  return {
+    async generate(input) {
+      const result = await binding.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+        messages: [{ role: "user", content: `${promptFor(input)}\nReturn JSON: {"items":[...]}.` }],
+        response_format: { type: "json_object" },
+      });
+      if (typeof result.response === "string") return JSON.parse(result.response);
+      return result.response;
+    },
+  };
 }
 
 function createAiSdkGenerator(
