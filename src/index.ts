@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { pathToFileURL } from "node:url";
 import { type AppConfig, loadConfig } from "./config.js";
+import { handleHealthRequest } from "./http/health-handler.js";
 import { createExceptionReporter } from "./telemetry.js";
 
 export type HealthServer = {
@@ -9,14 +10,13 @@ export type HealthServer = {
 };
 
 export async function createHealthServer(options: { port?: number } = {}): Promise<HealthServer> {
-  const server = createServer((request, response) => {
-    if (request.method === "GET" && request.url === "/health") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify({ status: "ok" }));
-      return;
-    }
-    response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
-    response.end(JSON.stringify({ error: "Not found" }));
+  const server = createServer(async (request, response) => {
+    const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
+    const handled = handleHealthRequest(
+      new Request(requestUrl, { method: request.method ?? "GET" }),
+    );
+    response.writeHead(handled.status, Object.fromEntries(handled.headers));
+    response.end(await handled.text());
   });
 
   await listen(server, options.port ?? 3000);
