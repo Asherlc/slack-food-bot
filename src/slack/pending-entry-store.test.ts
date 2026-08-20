@@ -8,6 +8,7 @@ import {
 
 const entry = (externalSubject = "opaque-subject"): PendingEntryInput => ({
   externalSubject,
+  date: "2026-08-20",
   item: {
     foodName: "Oatmeal",
     foodDescription: "One bowl",

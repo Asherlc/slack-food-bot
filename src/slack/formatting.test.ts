@@ -1,7 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { formatCancellation, formatConfirmation } from "./formatting.js";
+import { formatCancellation, formatConfirmation, formatDraft } from "./formatting.js";
 
 describe("Slack Block Kit formatting", () => {
+  it("formats a parsed draft with confirm and cancel actions", () => {
+    expect(
+      formatDraft([
+        {
+          foodName: "Oatmeal",
+          foodDescription: "One bowl",
+          category: "breads_and_cereals",
+          meal: "breakfast",
+          nutrients: { calories: 320 },
+        },
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "section" }),
+        expect.objectContaining({
+          type: "actions",
+          elements: expect.arrayContaining([
+            expect.objectContaining({ action_id: "food_confirm" }),
+            expect.objectContaining({ action_id: "food_cancel" }),
+          ]),
+        }),
+      ]),
+    );
+  });
+
   it("renders target-returned IDs and available server summary", () => {
     const blocks = formatConfirmation({
       entries: [{ id: "entry-1", externalId: "draft-1" }],

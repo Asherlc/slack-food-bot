@@ -11,6 +11,7 @@ const pendingEntrySchema = z
   .object({
     id: z.uuid(),
     externalSubject: z.string().min(1),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     item: nutritionItemSchema,
     channelId: z.string().min(1),
     confirmationMessageTs: z.string().min(1),
@@ -22,6 +23,7 @@ const pendingEntrySchema = z
 
 export type PendingEntryInput = {
   externalSubject: string;
+  date: string;
   item: NutritionItem;
   channelId: string;
   confirmationMessageTs: string;
