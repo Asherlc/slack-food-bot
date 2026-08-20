@@ -219,6 +219,7 @@ describe("Cloudflare food Queue consumer", () => {
           expiresInSeconds: 900,
         }),
         saveGrant: async () => undefined,
+        publishProcessing: async () => undefined,
         confirmFood: async (input) => {
           writes.push(input);
           return {
@@ -234,6 +235,9 @@ describe("Cloudflare food Queue consumer", () => {
         publishConfirmed: async (input) => {
           confirmed.push(input);
         },
+        publishConfirmationFailure: async () => {
+          throw new Error("must not publish failure");
+        },
         deletePending: async () => undefined,
       },
     );
@@ -245,5 +249,67 @@ describe("Cloudflare food Queue consumer", () => {
       }),
     ]);
     expect(confirmed).toHaveLength(1);
+  });
+
+  it("shows a failed save state and keeps the draft when Dofek confirmation fails", async () => {
+    const phases: string[] = [];
+    const deleted: unknown[] = [];
+    const entry = {
+      id: "entry:Ev1:0",
+      externalSubject: "slack:T1:U1",
+      date: "2024-03-09",
+      item: oatmeal,
+      channelId: "D1",
+      confirmationMessageTs: "2.0",
+      slackUserId: "U1",
+      threadTs: "1.0",
+      sourceMessageTs: "1.0",
+    };
+
+    await expect(
+      processFoodQueueJob(
+        {
+          kind: "action",
+          action: "confirm",
+          deliveryId: "action:confirm:T1:U1:2.0:1710000000.000001",
+          payload: {
+            team: { id: "T1" },
+            user: { id: "U1" },
+            container: { channel_id: "D1", message_ts: "2.0" },
+          },
+        },
+        {
+          findPending: async () => [entry],
+          loadGrant: async () => ({
+            externalSubject: "T1:U1",
+            grantId: "grant-1",
+            accessToken: "token",
+            expiresInSeconds: 900,
+          }),
+          saveGrant: async () => undefined,
+          reissueGrant: async () => {
+            throw new Error("must not reissue");
+          },
+          publishProcessing: async () => {
+            phases.push("processing");
+          },
+          confirmFood: async () => {
+            throw new Error("Dofek nutrition write failed with status 401");
+          },
+          publishConfirmationFailure: async () => {
+            phases.push("failed");
+          },
+          publishConfirmed: async () => {
+            throw new Error("must not publish success");
+          },
+          deletePending: async (ids) => {
+            deleted.push(ids);
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(phases).toEqual(["processing", "failed"]);
+    expect(deleted).toEqual([]);
   });
 });

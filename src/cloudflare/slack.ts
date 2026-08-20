@@ -75,7 +75,10 @@ async function handleAction(
   const userId = nestedString(payload, "user", "id");
   const messageTs = nestedString(payload, "container", "message_ts");
   if (!action || !teamId || !userId || !messageTs) return badRequest();
-  const deliveryId = `action:${action}:${teamId}:${userId}:${messageTs}`;
+  const actionTs = nestedString(payload, "actions", 0, "action_ts");
+  const deliveryId = actionTs
+    ? `action:${action}:${teamId}:${userId}:${messageTs}:${actionTs}`
+    : `action:${action}:${teamId}:${userId}:${messageTs}`;
   if (await dependencies.recordDelivery(deliveryId))
     await dependencies.enqueue({ kind: "action", action, deliveryId, payload });
   return Response.json({ ok: true });

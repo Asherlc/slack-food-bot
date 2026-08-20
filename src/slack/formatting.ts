@@ -83,6 +83,44 @@ export function formatConfirmation(result: ConfirmedNutritionWrite): BlockKitBlo
   return blocks;
 }
 
+export function formatProcessing(): BlockKitBlock[] {
+  return [
+    {
+      type: "section",
+      text: { type: "mrkdwn", text: "Saving food log…" },
+    },
+  ];
+}
+
+export function formatConfirmationFailure(): BlockKitBlock[] {
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "This food log could not be saved. Link Dofek if needed, then try again.",
+      },
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Try again" },
+          action_id: "food_confirm",
+          style: "primary",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Cancel" },
+          action_id: "food_cancel",
+          style: "danger",
+        },
+      ],
+    },
+  ];
+}
+
 export function formatCancellation(): BlockKitBlock[] {
   return [
     {

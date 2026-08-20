@@ -91,7 +91,7 @@ describe("Slack Worker endpoint", () => {
       team: { id: "T1" },
       user: { id: "U1" },
       container: { channel_id: "D1", message_ts: "2.0" },
-      actions: [{ action_id: "food_confirm" }],
+      actions: [{ action_id: "food_confirm", action_ts: "1710000000.000001" }],
     });
     const response = await handleSlackRequest(
       await signedRequest(
@@ -109,7 +109,13 @@ describe("Slack Worker endpoint", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(jobs).toEqual([expect.objectContaining({ kind: "action", action: "confirm" })]);
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        kind: "action",
+        action: "confirm",
+        deliveryId: "action:confirm:T1:U1:2.0:1710000000.000001",
+      }),
+    ]);
   });
 
   it("returns an ephemeral Dofek URL for a signed link command", async () => {

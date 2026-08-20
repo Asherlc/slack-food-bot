@@ -3,7 +3,12 @@ import {
   type WorkersAiBinding,
 } from "../ai/nutrition-analyzer.js";
 import { DofekClient } from "../dofek/client.js";
-import { formatConfirmation, formatDraft } from "../slack/formatting.js";
+import {
+  formatConfirmation,
+  formatConfirmationFailure,
+  formatDraft,
+  formatProcessing,
+} from "../slack/formatting.js";
 import type { ConfirmedNutritionWrite, NutritionItem } from "../targets/types.js";
 import { processFoodQueueJob } from "./consumer.js";
 import type { SlackQueueJob } from "./slack.js";
@@ -48,7 +53,9 @@ export async function processCloudflareFoodJob(
     saveGrant: (subject, grant) => store.saveGrant(subject, grant),
     reissueGrant: (input) => target.reissueGrant(input),
     confirmFood: (input) => target.confirmFood(input),
+    publishProcessing: (input) => messenger.publishProcessing(input),
     publishConfirmed: (input) => messenger.publishConfirmed(input),
+    publishConfirmationFailure: (input) => messenger.publishConfirmationFailure(input),
   });
 }
 
@@ -123,6 +130,32 @@ class CloudflareSlackMessenger {
       ts: input.confirmationMessageTs,
       text: "Food confirmed.",
       blocks: formatConfirmation(input.result),
+    });
+  }
+
+  async publishProcessing(input: {
+    teamId: string;
+    channelId: string;
+    confirmationMessageTs: string;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.update", {
+      channel: input.channelId,
+      ts: input.confirmationMessageTs,
+      text: "Saving food log…",
+      blocks: formatProcessing(),
+    });
+  }
+
+  async publishConfirmationFailure(input: {
+    teamId: string;
+    channelId: string;
+    confirmationMessageTs: string;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.update", {
+      channel: input.channelId,
+      ts: input.confirmationMessageTs,
+      text: "Food log could not be saved. Try again.",
+      blocks: formatConfirmationFailure(),
     });
   }
 

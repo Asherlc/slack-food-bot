@@ -60,6 +60,16 @@ type ConsumerDependencies = Partial<{
     confirmationMessageTs: string;
     result: ConfirmedNutritionWrite;
   }): Promise<void>;
+  publishProcessing(input: {
+    teamId: string;
+    channelId: string;
+    confirmationMessageTs: string;
+  }): Promise<void>;
+  publishConfirmationFailure(input: {
+    teamId: string;
+    channelId: string;
+    confirmationMessageTs: string;
+  }): Promise<void>;
 }>;
 
 export async function processFoodQueueJob(
@@ -151,7 +161,9 @@ async function processAction(
     !dependencies.saveGrant ||
     !dependencies.reissueGrant ||
     !dependencies.confirmFood ||
+    !dependencies.publishProcessing ||
     !dependencies.publishConfirmed ||
+    !dependencies.publishConfirmationFailure ||
     !dependencies.deletePending
   ) {
     throw new Error("Cloudflare confirmation workflow is not configured");
@@ -173,21 +185,38 @@ async function processAction(
   }
   const subject = `${teamId}:${userId}`;
   const identity = { namespace: "slack", subject };
-  const grant =
-    (await dependencies.loadGrant(subject)) ?? (await dependencies.reissueGrant({ identity }));
-  await dependencies.saveGrant(subject, grant);
-  const result = await dependencies.confirmFood({
-    grant,
-    idempotencyKey: await confirmationIdempotencyKey(entries.map((entry) => entry.id)),
-    entries: entries.map((entry) => ({ ...entry.item, date: entry.date, externalId: entry.id })),
-  });
-  await dependencies.publishConfirmed({
+  await dependencies.publishProcessing({
     teamId,
     channelId,
     confirmationMessageTs: messageTs,
-    result,
   });
-  await dependencies.deletePending(entries.map((entry) => entry.id));
+  try {
+    const grant =
+      (await dependencies.loadGrant(subject)) ?? (await dependencies.reissueGrant({ identity }));
+    await dependencies.saveGrant(subject, grant);
+    const result = await dependencies.confirmFood({
+      grant,
+      idempotencyKey: await confirmationIdempotencyKey(entries.map((entry) => entry.id)),
+      entries: entries.map((entry) => ({ ...entry.item, date: entry.date, externalId: entry.id })),
+    });
+    await dependencies.publishConfirmed({
+      teamId,
+      channelId,
+      confirmationMessageTs: messageTs,
+      result,
+    });
+    await dependencies.deletePending(entries.map((entry) => entry.id));
+  } catch (error) {
+    console.error("Slack food confirmation failed", {
+      deliveryId: job.deliveryId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    await dependencies.publishConfirmationFailure({
+      teamId,
+      channelId,
+      confirmationMessageTs: messageTs,
+    });
+  }
 }
 
 function objectField(
