@@ -61,7 +61,12 @@ async function processEvent(
   if (!event || stringField(event, "subtype") || stringField(event, "bot_id")) return;
   const type = stringField(event, "type");
   const channelType = stringField(event, "channel_type");
-  if (type !== "app_mention" && (type !== "message" || channelType !== "im")) return;
+  if (
+    type !== "app_mention" &&
+    (type !== "message" || (channelType !== "im" && channelType !== "app_home"))
+  ) {
+    return;
+  }
   const teamId = stringField(job.payload, "team_id");
   const userId = stringField(event, "user");
   const channelId = stringField(event, "channel");

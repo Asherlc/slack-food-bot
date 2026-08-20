@@ -48,6 +48,43 @@ describe("Cloudflare food Queue consumer", () => {
     ]);
   });
 
+  it("creates a draft when a user messages the writable App Home", async () => {
+    const saved: unknown[] = [];
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvAppHome",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "app_home",
+            user: "U1",
+            channel: "D1",
+            ts: "1710000000.000001",
+            text: "oatmeal",
+          },
+        },
+      },
+      {
+        analyze: async () => [oatmeal],
+        publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
+        savePending: async (entries) => {
+          saved.push(...entries);
+        },
+      },
+    );
+
+    expect(saved).toEqual([
+      expect.objectContaining({
+        id: "entry:EvAppHome:0",
+        externalSubject: "slack:T1:U1",
+        channelId: "D1",
+        item: oatmeal,
+      }),
+    ]);
+  });
+
   it("confirms only the action owner's pending draft with one stable Dofek write", async () => {
     const writes: unknown[] = [];
     const confirmed: unknown[] = [];
