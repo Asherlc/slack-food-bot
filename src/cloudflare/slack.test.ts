@@ -111,4 +111,29 @@ describe("Slack Worker endpoint", () => {
     expect(response.status).toBe(200);
     expect(jobs).toEqual([expect.objectContaining({ kind: "action", action: "confirm" })]);
   });
+
+  it("returns an ephemeral Dofek URL for a signed link command", async () => {
+    const response = await handleSlackRequest(
+      await signedRequest(
+        "/slack/commands",
+        "command=%2Flink-dofek&team_id=T1&user_id=U1",
+        "application/x-www-form-urlencoded",
+      ),
+      {
+        signingSecret,
+        recordDelivery: async () => true,
+        enqueue: async () => undefined,
+        startLink: async ({ namespace, subject }) => {
+          expect({ namespace, subject }).toEqual({ namespace: "slack", subject: "T1:U1" });
+          return { authorizationUrl: "https://dofek.example/link" };
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      response_type: "ephemeral",
+      text: "Finish linking your Dofek account: https://dofek.example/link",
+    });
+  });
 });

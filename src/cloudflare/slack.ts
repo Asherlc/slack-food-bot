@@ -11,23 +11,31 @@ export type SlackQueueJob =
       payload: Record<string, unknown>;
     };
 
+type SlackDependencies = {
+  signingSecret: string;
+  recordDelivery(deliveryId: string): Promise<boolean>;
+  enqueue(job: SlackQueueJob): Promise<void>;
+  startLink?(identity: {
+    namespace: string;
+    subject: string;
+  }): Promise<{ authorizationUrl: string }>;
+};
+
 export async function handleSlackRequest(
   request: Request,
-  dependencies: {
-    signingSecret: string;
-    recordDelivery(deliveryId: string): Promise<boolean>;
-    enqueue(job: SlackQueueJob): Promise<void>;
-  },
+  dependencies: SlackDependencies,
 ): Promise<Response> {
   if (request.method !== "POST") return notFound();
   const path = new URL(request.url).pathname;
-  if (path !== "/slack/events" && path !== "/slack/actions") return notFound();
+  if (path !== "/slack/events" && path !== "/slack/actions" && path !== "/slack/commands")
+    return notFound();
 
   const body = await request.text();
   if (!(await hasValidSignature(request.headers, body, dependencies.signingSecret)))
     return unauthorized();
 
   if (path === "/slack/actions") return handleAction(body, dependencies);
+  if (path === "/slack/commands") return handleCommand(body, dependencies);
 
   let payload: Record<string, unknown>;
   try {
@@ -51,10 +59,7 @@ export async function handleSlackRequest(
 
 async function handleAction(
   body: string,
-  dependencies: {
-    recordDelivery(deliveryId: string): Promise<boolean>;
-    enqueue(job: SlackQueueJob): Promise<void>;
-  },
+  dependencies: Pick<SlackDependencies, "recordDelivery" | "enqueue">,
 ): Promise<Response> {
   let payload: Record<string, unknown>;
   try {
@@ -74,6 +79,20 @@ async function handleAction(
   if (await dependencies.recordDelivery(deliveryId))
     await dependencies.enqueue({ kind: "action", action, deliveryId, payload });
   return Response.json({ ok: true });
+}
+
+async function handleCommand(body: string, dependencies: SlackDependencies): Promise<Response> {
+  if (!dependencies.startLink) return badRequest();
+  const command = new URLSearchParams(body);
+  if (command.get("command") !== "/link-dofek") return badRequest();
+  const teamId = command.get("team_id");
+  const userId = command.get("user_id");
+  if (!teamId || !userId) return badRequest();
+  const link = await dependencies.startLink({ namespace: "slack", subject: `${teamId}:${userId}` });
+  return Response.json({
+    response_type: "ephemeral",
+    text: `Finish linking your Dofek account: ${link.authorizationUrl}`,
+  });
 }
 
 async function hasValidSignature(

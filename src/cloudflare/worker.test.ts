@@ -3,9 +3,12 @@ import worker, { type CloudflareEnv } from "./worker.js";
 
 const env: CloudflareEnv = {
   SLACK_SIGNING_SECRET: "signing-secret",
+  SLACK_CLIENT_ID: "client-id",
+  SLACK_CLIENT_SECRET: "client-secret",
   BOT_STATE_ENCRYPTION_KEY: "REDACTED_TEST_ENCRYPTION_KEY",
   TARGET_API_BASE_URL: "https://dofek.example",
   TARGET_API_CLIENT_CREDENTIAL: "client.credential",
+  PUBLIC_BASE_URL: "https://food-bot.example",
   FOOD_BOT_DB: {
     prepare: () => ({
       bind: () => ({
