@@ -61,7 +61,7 @@ describe("DofekClient", () => {
       expiresInSeconds: 900,
     });
     expect(fetch).toHaveBeenCalledWith(
-      "https://dofek.example.test/api/external/v1/link/token",
+      "https://dofek.example.test/api/external/v1/link/reissue",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ Authorization: "Bearer ext_client.secret" }),

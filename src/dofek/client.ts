@@ -54,7 +54,7 @@ export class DofekClient implements Pick<NutritionTarget, "startIdentityLink" | 
   }
 
   async reissueGrant(input: { identity: ExternalIdentity }): Promise<TargetGrant> {
-    const response = await this.#fetch(`${this.#baseUrl}/api/external/v1/link/token`, {
+    const response = await this.#fetch(`${this.#baseUrl}/api/external/v1/link/reissue`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.#clientCredential}`,
