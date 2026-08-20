@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { pathToFileURL } from "node:url";
 import { type AppConfig, loadConfig } from "./config.js";
 import { createNotFoundResponse, handleHealthRequest } from "./http/health-handler.js";
+import { createWebRuntime } from "./runtime.js";
 import { createExceptionReporter } from "./telemetry.js";
 
 const nodeRequestOrigin = "http://127.0.0.1";
@@ -60,7 +61,14 @@ async function respondToNodeRequest(
 
 export function startApplication(env: NodeJS.ProcessEnv = process.env): Promise<HealthServer> {
   const config: AppConfig = loadConfig(env);
-  return createHealthServer({ port: config.port });
+  const runtime = createWebRuntime(config);
+  return runtime.start().then((server) => ({
+    port: config.port,
+    close: async () => {
+      await runtime.stop();
+      server.close();
+    },
+  }));
 }
 
 async function listen(server: Server, port: number): Promise<void> {

@@ -33,6 +33,17 @@ export class RedisInstallationStore {
   async deleteInstallation(query: InstallationQuery): Promise<void> {
     await this.#store.delete(installationKey(query));
   }
+
+  async fetchBotToken(teamId: string): Promise<string> {
+    const installation = await this.fetchInstallation({ teamId });
+    const bot = installation.bot;
+    if (typeof bot !== "object" || bot === null)
+      throw new Error("Slack installation has no bot token");
+    const token = (bot as Record<string, unknown>).token;
+    if (typeof token !== "string" || token.length === 0)
+      throw new Error("Slack installation has no bot token");
+    return token;
+  }
 }
 
 function installationKey(value: Installation | InstallationQuery): string {

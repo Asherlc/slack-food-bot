@@ -1,20 +1,21 @@
-import { type Environment, loadConfig } from "./config.js";
-import { handleHealthRequest } from "./http/health-handler.js";
+import { pathToFileURL } from "node:url";
+import { loadConfig } from "./config.js";
+import { createWorkerRuntime } from "./runtime.js";
 import { createExceptionReporter } from "./telemetry.js";
 
-const worker = {
-  fetch(request: Request, env: Environment): Response {
-    try {
-      loadConfig(env);
-      return handleHealthRequest(request);
-    } catch (error: unknown) {
-      createExceptionReporter().captureException(error, { operation: "worker-request" });
-      return Response.json(
-        { error: "Internal Server Error" },
-        { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
-      );
-    }
-  },
-};
+export function startWorker(env: NodeJS.ProcessEnv = process.env) {
+  return createWorkerRuntime(loadConfig(env));
+}
 
-export default worker;
+const invokedDirectly = process.argv[1]
+  ? import.meta.url === pathToFileURL(process.argv[1]).href
+  : false;
+
+if (invokedDirectly) {
+  try {
+    startWorker();
+  } catch (error: unknown) {
+    createExceptionReporter().captureException(error, { operation: "worker-startup" });
+    process.exitCode = 1;
+  }
+}
