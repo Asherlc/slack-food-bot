@@ -4,6 +4,7 @@ import { CloudflareStore, type D1DatabaseLike } from "./store.js";
 class MemoryD1 implements D1DatabaseLike {
   readonly installations = new Map<string, string>();
   readonly grants = new Map<string, string>();
+  readonly pending = new Map<string, string>();
   readonly links = new Map<string, string>();
   readonly values: string[] = [];
   readonly deliveries = new Set<string>();
@@ -20,6 +21,10 @@ class MemoryD1 implements D1DatabaseLike {
             const value = this.grants.get(String(values[0]));
             return value ? ({ ciphertext: value } as T) : null;
           }
+          if (query.includes("FROM pending_entries")) {
+            const rows = [...this.pending.values()].map((ciphertext) => ({ ciphertext }));
+            return (rows[0] as T | undefined) ?? null;
+          }
           if (query.includes("DELETE FROM links")) {
             const value = this.links.get(String(values[0]));
             this.links.delete(String(values[0]));
@@ -27,11 +32,24 @@ class MemoryD1 implements D1DatabaseLike {
           }
           return null;
         },
+        all: async <T>() => {
+          if (query.includes("FROM pending_entries")) {
+            return {
+              results: [...this.pending.values()].map((ciphertext) => ({ ciphertext }) as T),
+            };
+          }
+          return { results: [] as T[] };
+        },
         run: async () => {
           this.values.push(...values.map(String));
           if (query.includes("INTO installations"))
             this.installations.set(String(values[0]), String(values[1]));
           if (query.includes("INTO grants")) this.grants.set(String(values[0]), String(values[1]));
+          if (query.includes("INTO pending_entries"))
+            this.pending.set(String(values[0]), String(values[1]));
+          if (query.includes("DELETE FROM pending_entries")) {
+            for (const id of values) this.pending.delete(String(id));
+          }
           if (query.includes("INTO links")) this.links.set(String(values[0]), String(values[1]));
           if (query.includes("INTO deliveries")) {
             const deliveryId = String(values[0]);
@@ -88,5 +106,23 @@ describe("CloudflareStore", () => {
 
     expect(database.values.join(" ")).not.toContain("dofek-secret");
     await expect(store.loadGrant<typeof grant>("T1:U1")).resolves.toEqual(grant);
+  });
+
+  it("encrypts pending drafts and finds them by their confirmation message", async () => {
+    const database = new MemoryD1();
+    const store = new CloudflareStore(database, encryptionKey);
+    const entry = {
+      id: "entry-1",
+      channelId: "D1",
+      confirmationMessageTs: "2.0",
+      item: { foodName: "oatmeal" },
+    };
+
+    await store.savePending([entry], 3_600);
+
+    expect(database.values.join(" ")).not.toContain("oatmeal");
+    await expect(store.findPending<typeof entry>("D1", "2.0")).resolves.toEqual([entry]);
+    await store.deletePending(["entry-1"]);
+    await expect(store.findPending("D1", "2.0")).resolves.toEqual([]);
   });
 });

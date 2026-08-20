@@ -4,12 +4,19 @@ export type D1DatabaseLike = {
   prepare(query: string): {
     bind(...values: unknown[]): {
       first<T>(): Promise<T | null>;
+      all<T>(): Promise<{ results: T[] }>;
       run(): Promise<D1RunResult>;
     };
   };
 };
 
 type CiphertextRow = { ciphertext: string };
+
+export type PendingRecord = {
+  id: string;
+  channelId: string;
+  confirmationMessageTs: string;
+};
 
 export class CloudflareStore {
   readonly #database: D1DatabaseLike;
@@ -74,6 +81,42 @@ export class CloudflareStore {
       .bind(subject)
       .first<CiphertextRow>();
     return row ? decrypt<T>(this.#encryptionKey, row.ciphertext) : null;
+  }
+
+  async savePending<T extends PendingRecord>(
+    entries: ReadonlyArray<T>,
+    ttlSeconds: number,
+  ): Promise<void> {
+    for (const entry of entries) {
+      const ciphertext = await encrypt(this.#encryptionKey, entry);
+      await this.#database
+        .prepare(
+          "INSERT INTO pending_entries (entry_id, ciphertext, channel_id, confirmation_message_ts, expires_at) VALUES (?, ?, ?, ?, unixepoch() + ?)",
+        )
+        .bind(entry.id, ciphertext, entry.channelId, entry.confirmationMessageTs, ttlSeconds)
+        .run();
+    }
+  }
+
+  async findPending<T>(channelId: string, confirmationMessageTs: string): Promise<T[]> {
+    const result = await this.#database
+      .prepare(
+        "SELECT ciphertext FROM pending_entries WHERE channel_id = ? AND confirmation_message_ts = ? AND expires_at > unixepoch()",
+      )
+      .bind(channelId, confirmationMessageTs)
+      .all<CiphertextRow>();
+    return Promise.all(
+      result.results.map((row) => decrypt<T>(this.#encryptionKey, row.ciphertext)),
+    );
+  }
+
+  async deletePending(ids: ReadonlyArray<string>): Promise<void> {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(", ");
+    await this.#database
+      .prepare(`DELETE FROM pending_entries WHERE entry_id IN (${placeholders})`)
+      .bind(...ids)
+      .run();
   }
 
   async recordDelivery(deliveryId: string): Promise<boolean> {

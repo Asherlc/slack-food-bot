@@ -15,6 +15,9 @@
     "lint": "biome check .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev:workers": "wrangler dev",
+    "deploy:workers": "wrangler deploy",
+    "migrate:workers": "wrangler d1 migrations apply slack-food-bot --remote",
     "start": "node dist/src/index.js",
     "start:worker": "node dist/src/worker.js"
   },
@@ -34,6 +37,7 @@
     "@types/node": "26.2.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
+    "wrangler": "^4.125.0",
     "yaml": "^2.9.0"
   }
 }

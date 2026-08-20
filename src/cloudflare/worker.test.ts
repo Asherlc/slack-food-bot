@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import worker, { type CloudflareEnv } from "./worker.js";
+
+const env: CloudflareEnv = {
+  SLACK_SIGNING_SECRET: "signing-secret",
+  BOT_STATE_ENCRYPTION_KEY: "REDACTED_TEST_ENCRYPTION_KEY",
+  TARGET_API_BASE_URL: "https://dofek.example",
+  TARGET_API_CLIENT_CREDENTIAL: "client.credential",
+  FOOD_BOT_DB: {
+    prepare: () => ({
+      bind: () => ({
+        first: async () => null,
+        all: async () => ({ results: [] }),
+        run: async () => ({ meta: { changes: 1 } }),
+      }),
+    }),
+  },
+  FOOD_JOBS: { send: async () => undefined },
+};
+
+describe("Cloudflare Worker", () => {
+  it("serves a secret-free health response without accessing state", async () => {
+    const response = await worker.fetch(new Request("https://food-bot.example/health"), env);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "ok" });
+  });
+});

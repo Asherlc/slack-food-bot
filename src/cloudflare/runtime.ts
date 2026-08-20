@@ -1,0 +1,106 @@
+import { createProductionNutritionAnalyzer } from "../ai/nutrition-analyzer.js";
+import { DofekClient } from "../dofek/client.js";
+import { formatConfirmation, formatDraft } from "../slack/formatting.js";
+import type { ConfirmedNutritionWrite, NutritionItem } from "../targets/types.js";
+import { processFoodQueueJob } from "./consumer.js";
+import type { SlackQueueJob } from "./slack.js";
+import { CloudflareStore, type D1DatabaseLike } from "./store.js";
+
+export type CloudflareRuntimeEnv = {
+  BOT_STATE_ENCRYPTION_KEY: string;
+  FOOD_BOT_DB: D1DatabaseLike;
+  GEMINI_API_KEY?: string;
+  MISTRAL_API_KEY?: string;
+  TARGET_API_BASE_URL: string;
+  TARGET_API_CLIENT_CREDENTIAL: string;
+};
+
+export async function processCloudflareFoodJob(
+  job: SlackQueueJob,
+  env: CloudflareRuntimeEnv,
+): Promise<void> {
+  const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
+  const analyzer = createProductionNutritionAnalyzer({
+    ...(env.GEMINI_API_KEY ? { geminiApiKey: env.GEMINI_API_KEY } : {}),
+    ...(env.MISTRAL_API_KEY ? { mistralApiKey: env.MISTRAL_API_KEY } : {}),
+  });
+  const target = new DofekClient({
+    baseUrl: env.TARGET_API_BASE_URL,
+    clientCredential: env.TARGET_API_CLIENT_CREDENTIAL,
+  });
+  const messenger = new CloudflareSlackMessenger(store);
+  await processFoodQueueJob(job, {
+    analyze: (text, localTime) => analyzer.analyze(text, localTime),
+    publishDraft: (input) => messenger.publishDraft(input),
+    savePending: (entries) => store.savePending(entries, 86_400),
+    findPending: (channelId, messageTs) => store.findPending(channelId, messageTs),
+    deletePending: (ids) => store.deletePending(ids),
+    loadGrant: (subject) => store.loadGrant(subject),
+    saveGrant: (subject, grant) => store.saveGrant(subject, grant),
+    reissueGrant: (input) => target.reissueGrant(input),
+    confirmFood: (input) => target.confirmFood(input),
+    publishConfirmed: (input) => messenger.publishConfirmed(input),
+  });
+}
+
+type SlackInstallation = { botToken: string };
+
+class CloudflareSlackMessenger {
+  readonly #store: CloudflareStore;
+
+  constructor(store: CloudflareStore) {
+    this.#store = store;
+  }
+
+  async publishDraft(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+    items: ReadonlyArray<NutritionItem>;
+  }): Promise<{ confirmationMessageTs: string }> {
+    const message = await this.#call<{ ts?: unknown }>(input.teamId, "chat.postMessage", {
+      channel: input.channelId,
+      thread_ts: input.threadTs,
+      text: "Draft food log ready for confirmation.",
+      blocks: formatDraft(input.items),
+    });
+    if (typeof message.ts !== "string" || message.ts.length === 0)
+      throw new Error("Slack omitted message ts");
+    return { confirmationMessageTs: message.ts };
+  }
+
+  async publishConfirmed(input: {
+    teamId: string;
+    channelId: string;
+    confirmationMessageTs: string;
+    result: ConfirmedNutritionWrite;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.update", {
+      channel: input.channelId,
+      ts: input.confirmationMessageTs,
+      text: "Food confirmed.",
+      blocks: formatConfirmation(input.result),
+    });
+  }
+
+  async #call<T extends Record<string, unknown>>(
+    teamId: string,
+    method: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
+    const installation = await this.#store.loadInstallation<SlackInstallation>(teamId);
+    if (!installation?.botToken) throw new Error("Slack app is not installed for this workspace");
+    const response = await fetch(`https://slack.com/api/${method}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${installation.botToken}`,
+        "content-type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`Slack ${method} failed with status ${response.status}`);
+    const result = (await response.json()) as { ok?: unknown } & T;
+    if (result.ok !== true) throw new Error(`Slack ${method} rejected the request`);
+    return result;
+  }
+}
