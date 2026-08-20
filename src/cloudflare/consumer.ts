@@ -24,6 +24,12 @@ type ConsumerDependencies = Partial<{
     threadTs: string;
     items: ReadonlyArray<NutritionItem>;
   }): Promise<{ confirmationMessageTs: string }>;
+  publishClarification(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+    description: string;
+  }): Promise<void>;
   savePending(entries: ReadonlyArray<CloudflarePendingEntry>): Promise<void>;
   findPending(channelId: string, confirmationMessageTs: string): Promise<CloudflarePendingEntry[]>;
   deletePending(ids: ReadonlyArray<string>): Promise<void>;
@@ -75,11 +81,17 @@ async function processEvent(
   if (!teamId || !userId || !channelId || !sourceMessageTs || !rawText) return;
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   if (!text) return;
+  const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
+  if (needsIngredientClarification(text)) {
+    if (!dependencies.publishClarification)
+      throw new Error("Cloudflare clarification workflow is not configured");
+    await dependencies.publishClarification({ teamId, channelId, threadTs, description: text });
+    return;
+  }
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
   if (Number.isNaN(time.valueOf())) return;
   const items = await dependencies.analyze(text, time.toTimeString().slice(0, 5));
-  const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
   const draft = await dependencies.publishDraft({ teamId, channelId, threadTs, items });
   await dependencies.savePending(
     items.map((item, index) => ({
@@ -94,6 +106,11 @@ async function processEvent(
       sourceMessageTs,
     })),
   );
+}
+
+function needsIngredientClarification(text: string): boolean {
+  const words = text.replace(/^\s*\d+(?:\.\d+)?\s*(?:x\s*)?/i, "").match(/[a-z]+/gi);
+  return words?.length === 2 && !/\b(?:with|without|no|and|or|plus|on)\b/i.test(text);
 }
 
 async function processAction(

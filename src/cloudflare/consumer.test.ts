@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { processFoodQueueJob } from "./consumer.js";
 
 const oatmeal = {
@@ -83,6 +83,50 @@ describe("Cloudflare food Queue consumer", () => {
         item: oatmeal,
       }),
     ]);
+  });
+
+  it("asks for components instead of estimating a bare multi-word food label", async () => {
+    const clarifications: unknown[] = [];
+    const analyze = vi.fn(async () => [oatmeal]);
+    const saved: unknown[] = [];
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvClarify",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1710000000.000001",
+            text: "1 hot dog",
+          },
+        },
+      },
+      {
+        analyze,
+        publishClarification: async (input) => {
+          clarifications.push(input);
+        },
+        publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
+        savePending: async (entries) => {
+          saved.push(...entries);
+        },
+      },
+    );
+
+    expect(clarifications).toEqual([
+      {
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1710000000.000001",
+        description: "1 hot dog",
+      },
+    ]);
+    expect(analyze).not.toHaveBeenCalled();
+    expect(saved).toEqual([]);
   });
 
   it("confirms only the action owner's pending draft with one stable Dofek write", async () => {

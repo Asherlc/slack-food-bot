@@ -38,6 +38,7 @@ export async function processCloudflareFoodJob(
   await processFoodQueueJob(job, {
     analyze: (text, localTime) => analyzer.analyze(text, localTime),
     publishDraft: (input) => messenger.publishDraft(input),
+    publishClarification: (input) => messenger.publishClarification(input),
     savePending: (entries) => store.savePending(entries, 86_400),
     findPending: (channelId, messageTs) => store.findPending(channelId, messageTs),
     deletePending: (ids) => store.deletePending(ids),
@@ -94,6 +95,19 @@ class CloudflareSlackMessenger {
     if (typeof message.ts !== "string" || message.ts.length === 0)
       throw new Error("Slack omitted message ts");
     return { confirmationMessageTs: message.ts };
+  }
+
+  async publishClarification(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+    description: string;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.postMessage", {
+      channel: input.channelId,
+      thread_ts: input.threadTs,
+      text: `I don't want to assume what “${input.description}” includes. Please reply with a complete description of its components, including any bread, sauces, toppings, or sides.`,
+    });
   }
 
   async publishConfirmed(input: {
