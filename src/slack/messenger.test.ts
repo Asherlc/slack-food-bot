@@ -8,6 +8,7 @@ describe("SlackMessenger", () => {
 
     await expect(
       messenger.publishDraft({
+        teamId: "T1",
         channelId: "D1",
         threadTs: "1.000001",
         items: [
@@ -31,6 +32,7 @@ describe("SlackMessenger", () => {
     const messenger = new SlackMessenger({ chat: { postMessage: vi.fn(), update } });
 
     await messenger.publishRefinedDraft({
+      teamId: "T1",
       channelId: "D1",
       confirmationMessageTs: "2.000001",
       items: [

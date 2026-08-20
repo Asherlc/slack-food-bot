@@ -6,6 +6,7 @@ import type { ConfirmedNutritionWrite, NutritionItem, NutritionTarget } from "..
 
 export type DraftMessenger = {
   publishDraft(input: {
+    teamId: string;
     channelId: string;
     threadTs: string;
     items: ReadonlyArray<NutritionItem>;
@@ -14,6 +15,7 @@ export type DraftMessenger = {
 
 type ConfirmationMessenger = {
   publishConfirmed(input: {
+    teamId: string;
     channelId: string;
     confirmationMessageTs: string;
     result: ConfirmedNutritionWrite;
@@ -22,6 +24,7 @@ type ConfirmationMessenger = {
 
 type RefinementMessenger = {
   publishRefinedDraft(input: {
+    teamId: string;
     channelId: string;
     confirmationMessageTs: string;
     items: ReadonlyArray<NutritionItem>;
@@ -29,7 +32,11 @@ type RefinementMessenger = {
 };
 
 type CancellationMessenger = {
-  publishCancelled(input: { channelId: string; confirmationMessageTs: string }): Promise<void>;
+  publishCancelled(input: {
+    teamId: string;
+    channelId: string;
+    confirmationMessageTs: string;
+  }): Promise<void>;
 };
 
 type WorkflowPendingStore = Partial<
@@ -105,6 +112,7 @@ export class FoodWorkflow {
       input.localTime,
     );
     await this.#messenger.publishRefinedDraft({
+      teamId: input.teamId,
       channelId: input.channelId,
       confirmationMessageTs: input.confirmationMessageTs,
       items,
@@ -141,6 +149,7 @@ export class FoodWorkflow {
     }
     const items = await this.#analyzer.analyze(input.text, input.localTime);
     const draft = await this.#messenger.publishDraft({
+      teamId: input.teamId,
       channelId: input.channelId,
       threadTs: input.threadTs,
       items,
@@ -200,6 +209,7 @@ export class FoodWorkflow {
       entries: entries.map((entry) => ({ ...entry.item, date: entry.date, externalId: entry.id })),
     });
     await this.#messenger.publishConfirmed({
+      teamId: input.teamId,
       channelId: input.channelId,
       confirmationMessageTs: firstEntry.confirmationMessageTs,
       result,
@@ -235,6 +245,7 @@ export class FoodWorkflow {
       throw new Error("Pending food entries do not belong to this Slack user");
     }
     await this.#messenger.publishCancelled({
+      teamId: input.teamId,
       channelId: input.channelId,
       confirmationMessageTs: firstEntry.confirmationMessageTs,
     });

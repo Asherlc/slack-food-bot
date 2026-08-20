@@ -29,6 +29,7 @@ export class SlackMessenger implements DraftMessenger {
   }
 
   async publishConfirmed(input: {
+    teamId: string;
     channelId: string;
     confirmationMessageTs: string;
     result: ConfirmedNutritionWrite;
@@ -42,6 +43,7 @@ export class SlackMessenger implements DraftMessenger {
   }
 
   async publishRefinedDraft(input: {
+    teamId: string;
     channelId: string;
     confirmationMessageTs: string;
     items: Parameters<DraftMessenger["publishDraft"]>[0]["items"];
@@ -55,6 +57,7 @@ export class SlackMessenger implements DraftMessenger {
   }
 
   async publishCancelled(input: {
+    teamId: string;
     channelId: string;
     confirmationMessageTs: string;
   }): Promise<void> {

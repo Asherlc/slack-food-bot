@@ -159,6 +159,7 @@ describe("FoodWorkflow", () => {
     await workflow.cancel({ teamId: "T1", userId: "U1", channelId: "D1", entryIds: ["entry-1"] });
 
     expect(messenger.publishCancelled).toHaveBeenCalledWith({
+      teamId: "T1",
       channelId: "D1",
       confirmationMessageTs: "2.000001",
     });
