@@ -115,6 +115,8 @@ export interface NutritionTarget {
     identity: ExternalIdentity;
   }): Promise<TargetGrant>;
 
+  reissueGrant(input: { identity: ExternalIdentity }): Promise<TargetGrant>;
+
   getIdentityStatus(input: { identity: ExternalIdentity }): Promise<IdentityStatus>;
 
   confirmFood(input: {

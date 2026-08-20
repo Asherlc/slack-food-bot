@@ -65,6 +65,12 @@ describe("target-neutral nutrition contracts", () => {
         accessToken: "opaque-token",
         expiresInSeconds: 900,
       }),
+      reissueGrant: async () => ({
+        externalSubject: "opaque-subject",
+        grantId: "grant",
+        accessToken: "rotated-token",
+        expiresInSeconds: 900,
+      }),
       getIdentityStatus: async () => ({ status: "linked" }),
       confirmFood: async () => ({
         entries: [{ id: "entry", externalId: "app-entry" }],
