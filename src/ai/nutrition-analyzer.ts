@@ -6,9 +6,7 @@ import { parseNutritionItems } from "../nutrition/parser.js";
 import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
-const nutritionResultJsonSchema = removeUnsupportedWorkersAiSchemaKeywords(
-  z.toJSONSchema(nutritionResultSchema),
-);
+const workersAiModel = "@cf/google/gemma-4-26b-a4b-it";
 
 export type NutritionGeneration =
   | { kind: "analyze"; text: string; localTime: string }
@@ -103,24 +101,13 @@ export function createProductionNutritionAnalyzer(input: {
 function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator {
   return {
     async generate(input) {
-      const result = await binding.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+      const result = await binding.run(workersAiModel, {
         messages: [{ role: "user", content: promptFor(input) }],
-        response_format: { type: "json_schema", json_schema: nutritionResultJsonSchema },
       });
       if (typeof result.response === "string") return JSON.parse(result.response);
       return result.response;
     },
   };
-}
-
-function removeUnsupportedWorkersAiSchemaKeywords(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(removeUnsupportedWorkersAiSchemaKeywords);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => key !== "propertyNames")
-      .map(([key, nested]) => [key, removeUnsupportedWorkersAiSchemaKeywords(nested)]),
-  );
 }
 
 function createAiSdkGenerator(
@@ -140,7 +127,7 @@ function createAiSdkGenerator(
 
 function promptFor(input: NutritionGeneration): string {
   const instruction =
-    "Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Nutrient values must be non-negative. Use the supplied local time to infer meal when needed.";
+    'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
   if (input.kind === "analyze") {
     return `${instruction}\nLocal time: ${input.localTime}\nFood description: ${input.text}`;
   }

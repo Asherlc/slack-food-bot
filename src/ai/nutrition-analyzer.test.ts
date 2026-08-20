@@ -72,7 +72,7 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
-  it("uses a Workers AI binding when external model keys are unavailable", async () => {
+  it("uses Gemma without unsupported schema mode when external model keys are unavailable", async () => {
     const workersAi = {
       run: vi.fn(async () => ({ response: { items } })),
     };
@@ -82,21 +82,16 @@ describe("NutritionAnalyzer", () => {
 
     await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
     expect(workersAi.run).toHaveBeenCalledWith(
-      "@cf/meta/llama-3.1-8b-instruct-fast",
-      expect.objectContaining({
-        response_format: expect.objectContaining({
-          type: "json_schema",
-          json_schema: expect.objectContaining({
-            properties: expect.objectContaining({ items: expect.any(Object) }),
-          }),
-        }),
-      }),
+      "@cf/google/gemma-4-26b-a4b-it",
+      expect.not.objectContaining({ response_format: expect.anything() }),
     );
     const firstRequest = workersAi.run.mock.calls[0] as unknown as [string, unknown] | undefined;
-    expect(JSON.stringify(firstRequest?.[1])).not.toContain("propertyNames");
     expect(JSON.stringify(firstRequest?.[1])).toContain(
       "Do not invent ingredients or accompaniments",
     );
     expect(JSON.stringify(firstRequest?.[1])).toContain("least-composite interpretation");
+    expect(JSON.stringify(firstRequest?.[1])).toContain(
+      'valid JSON object with an \\"items\\" array',
+    );
   });
 });
