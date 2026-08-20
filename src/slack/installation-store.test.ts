@@ -29,11 +29,11 @@ describe("RedisInstallationStore", () => {
   it("persists a Slack installation encrypted by team ID", async () => {
     const redis = new MemoryRedis();
     const store = new RedisInstallationStore(new EncryptedJsonStore(redis, Buffer.alloc(32, 9)));
-    const installation = { team: { id: "T1" }, bot: { token: "xoxb-secret" } };
+    const installation = { team: { id: "T1" }, bot: { token: "test-bot-token" } };
 
     await store.storeInstallation(installation);
 
-    expect([...redis.values.values()].join(" ")).not.toContain("xoxb-secret");
+    expect([...redis.values.values()].join(" ")).not.toContain("test-bot-token");
     await expect(store.fetchInstallation({ teamId: "T1" })).resolves.toEqual(installation);
   });
 });
