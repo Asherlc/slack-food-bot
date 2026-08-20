@@ -53,7 +53,11 @@ const worker = {
     for (const message of batch.messages) {
       try {
         await processCloudflareFoodJob(message.body, env);
-      } catch {
+      } catch (error) {
+        console.error("Slack food job failed", {
+          deliveryId: message.body.deliveryId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
         message.retry();
       }
     }
