@@ -94,4 +94,38 @@ describe("NutritionAnalyzer", () => {
       'valid JSON object with an \\"items\\" array',
     );
   });
+
+  it("parses the JSON content from a Workers AI chat completion", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({
+        choices: [{ message: { content: JSON.stringify({ items }) } }],
+      })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
+  });
+
+  it("normalizes human-readable Workers AI enum labels", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                items: [{ ...items[0], category: "Breads and Cereals", meal: "Breakfast" }],
+              }),
+            },
+          },
+        ],
+      })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
+  });
 });

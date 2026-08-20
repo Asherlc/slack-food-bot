@@ -22,7 +22,13 @@ export type NutritionGenerator = {
 };
 
 export type WorkersAiBinding = {
-  run(model: string, input: Record<string, unknown>): Promise<{ response?: unknown }>;
+  run(
+    model: string,
+    input: Record<string, unknown>,
+  ): Promise<{
+    response?: unknown;
+    choices?: Array<{ message?: { content?: unknown } }>;
+  }>;
 };
 
 export class NutritionAnalyzer {
@@ -104,10 +110,39 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
       const result = await binding.run(workersAiModel, {
         messages: [{ role: "user", content: promptFor(input) }],
       });
-      if (typeof result.response === "string") return JSON.parse(result.response);
-      return result.response;
+      const response = result.response ?? result.choices?.[0]?.message?.content;
+      const parsedResponse = typeof response === "string" ? JSON.parse(response) : response;
+      return normalizeWorkersAiOutput(parsedResponse);
     },
   };
+}
+
+function normalizeWorkersAiOutput(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.items)) return value;
+  return {
+    ...value,
+    items: value.items.map((item) => {
+      if (!isRecord(item)) return item;
+      return {
+        ...item,
+        category: normalizeWorkersAiLabel(item.category),
+        meal: normalizeWorkersAiLabel(item.meal),
+      };
+    }),
+  };
+}
+
+function normalizeWorkersAiLabel(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  return value
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function createAiSdkGenerator(
