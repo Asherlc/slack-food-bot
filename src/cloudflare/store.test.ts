@@ -69,11 +69,11 @@ describe("CloudflareStore", () => {
   it("encrypts Slack installations before storing and restores them", async () => {
     const database = new MemoryD1();
     const store = new CloudflareStore(database, encryptionKey);
-    const installation = { teamId: "T1", botToken: "xoxb-secret" };
+    const installation = { teamId: "T1", botToken: "test-bot-token" };
 
     await store.saveInstallation("T1", installation);
 
-    expect(database.values.join(" ")).not.toContain("xoxb-secret");
+    expect(database.values.join(" ")).not.toContain("test-bot-token");
     await expect(store.loadInstallation<typeof installation>("T1")).resolves.toEqual(installation);
   });
 
