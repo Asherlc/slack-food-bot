@@ -140,7 +140,7 @@ function createAiSdkGenerator(
 
 function promptFor(input: NutritionGeneration): string {
   const instruction =
-    "Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Nutrient values must be non-negative. Use the supplied local time to infer meal when needed.";
+    "Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Nutrient values must be non-negative. Use the supplied local time to infer meal when needed.";
   if (input.kind === "analyze") {
     return `${instruction}\nLocal time: ${input.localTime}\nFood description: ${input.text}`;
   }

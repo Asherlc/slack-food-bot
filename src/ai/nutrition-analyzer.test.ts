@@ -97,5 +97,6 @@ describe("NutritionAnalyzer", () => {
     expect(JSON.stringify(firstRequest?.[1])).toContain(
       "Do not invent ingredients or accompaniments",
     );
+    expect(JSON.stringify(firstRequest?.[1])).toContain("least-composite interpretation");
   });
 });
