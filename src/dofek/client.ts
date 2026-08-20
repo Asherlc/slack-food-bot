@@ -1,5 +1,18 @@
 import { z } from "zod";
-import type { ExternalIdentity, NutritionTarget, TargetGrant } from "../targets/types.js";
+import type {
+  ExternalIdentity,
+  IdentityLinkStart,
+  NutritionTarget,
+  TargetGrant,
+} from "../targets/types.js";
+
+const linkStartSchema = z
+  .object({
+    linkId: z.string().min(1),
+    authorizationUrl: z.url(),
+    expiresAt: z.string().min(1),
+  })
+  .strict();
 
 const grantSchema = z
   .object({
@@ -12,7 +25,7 @@ const grantSchema = z
   })
   .strict();
 
-export class DofekClient implements Pick<NutritionTarget, "reissueGrant"> {
+export class DofekClient implements Pick<NutritionTarget, "startIdentityLink" | "reissueGrant"> {
   readonly #baseUrl: string;
   readonly #clientCredential: string;
   readonly #fetch: typeof fetch;
@@ -21,6 +34,23 @@ export class DofekClient implements Pick<NutritionTarget, "reissueGrant"> {
     this.#baseUrl = input.baseUrl.replace(/\/$/, "");
     this.#clientCredential = input.clientCredential;
     this.#fetch = input.fetch ?? fetch;
+  }
+
+  async startIdentityLink(input: {
+    redirectUri: string;
+    codeChallenge: string;
+    requestedScopes: ReadonlyArray<string>;
+  }): Promise<IdentityLinkStart> {
+    const response = await this.#fetch(`${this.#baseUrl}/api/external/v1/link/start`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.#clientCredential}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(`Dofek link start failed with status ${response.status}`);
+    return linkStartSchema.parse(await response.json());
   }
 
   async reissueGrant(input: { identity: ExternalIdentity }): Promise<TargetGrant> {
