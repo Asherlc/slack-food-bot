@@ -16,10 +16,19 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev:workers": "wrangler dev",
-    "deploy:workers": "wrangler deploy"
+    "deploy:workers": "wrangler deploy",
+    "migrate:workers": "wrangler d1 migrations apply slack-food-bot --remote",
+    "start": "node dist/src/index.js",
+    "start:worker": "node dist/src/worker.js"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.46",
+    "@ai-sdk/mistral": "^4.0.29",
     "@slack/bolt": "5.0.0",
+    "@slack/web-api": "8.0.0",
+    "ai": "^7.0.69",
+    "bullmq": "^6.1.2",
+    "ioredis": "^6.0.0",
     "redis": "6.2.1",
     "zod": "4.4.3"
   },
@@ -28,7 +37,7 @@
     "@types/node": "26.2.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
-    "wrangler": "^4.124.0",
+    "wrangler": "^4.125.0",
     "yaml": "^2.9.0"
   }
 }

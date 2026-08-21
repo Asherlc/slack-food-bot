@@ -1,7 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { formatCancellation, formatConfirmation } from "./formatting.js";
+import {
+  formatCancellation,
+  formatConfirmation,
+  formatConfirmationFailure,
+  formatDraft,
+  formatProcessing,
+} from "./formatting.js";
 
 describe("Slack Block Kit formatting", () => {
+  it("formats a parsed draft with confirm and cancel actions", () => {
+    expect(
+      formatDraft([
+        {
+          foodName: "Oatmeal",
+          foodDescription: "One bowl",
+          category: "breads_and_cereals",
+          meal: "breakfast",
+          nutrients: { calories: 320 },
+        },
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "section" }),
+        expect.objectContaining({
+          type: "actions",
+          elements: expect.arrayContaining([
+            expect.objectContaining({ action_id: "food_confirm" }),
+            expect.objectContaining({ action_id: "food_cancel" }),
+          ]),
+        }),
+      ]),
+    );
+  });
+
   it("renders target-returned IDs and available server summary", () => {
     const blocks = formatConfirmation({
       entries: [{ id: "entry-1", externalId: "draft-1" }],
@@ -57,5 +88,18 @@ describe("Slack Block Kit formatting", () => {
         text: { type: "mrkdwn", text: "Food draft cancelled." },
       },
     ]);
+  });
+
+  it("renders a processing message without confirmation actions", () => {
+    expect(JSON.stringify(formatProcessing())).toContain("Saving food log");
+    expect(JSON.stringify(formatProcessing())).not.toContain("food_confirm");
+  });
+
+  it("renders a failed confirmation with retry and cancel actions", () => {
+    const text = JSON.stringify(formatConfirmationFailure());
+
+    expect(text).toContain("could not be saved");
+    expect(text).toContain("food_confirm");
+    expect(text).toContain("food_cancel");
   });
 });

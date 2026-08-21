@@ -1,0 +1,53 @@
+{
+  "display_information": {
+    "name": "Slack Food Bot",
+    "description": "Capture food from Slack and save it after confirmation.",
+    "background_color": "#1D4ED8"
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "Slack Food Bot",
+      "always_online": false
+    },
+    "slash_commands": [
+      {
+        "command": "/link-dofek",
+        "description": "Link your Dofek account",
+        "should_escape": false,
+        "url": "https://slack-food-bot.slack-food-bot.workers.dev/slack/commands"
+      }
+    ]
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://slack-food-bot.slack-food-bot.workers.dev/slack/oauth_redirect"
+    ],
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "chat:write",
+        "commands",
+        "im:history",
+        "im:read",
+        "im:write"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://slack-food-bot.slack-food-bot.workers.dev/slack/events",
+      "bot_events": ["app_mention", "message.im"]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://slack-food-bot.slack-food-bot.workers.dev/slack/actions"
+    },
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

@@ -106,6 +106,7 @@ export interface NutritionTarget {
     redirectUri: string;
     codeChallenge: string;
     requestedScopes: ReadonlyArray<string>;
+    state?: string;
   }): Promise<IdentityLinkStart>;
 
   exchangeIdentityLink(input: {
@@ -114,6 +115,8 @@ export interface NutritionTarget {
     codeVerifier: string;
     identity: ExternalIdentity;
   }): Promise<TargetGrant>;
+
+  reissueGrant(input: { identity: ExternalIdentity }): Promise<TargetGrant>;
 
   getIdentityStatus(input: { identity: ExternalIdentity }): Promise<IdentityStatus>;
 

@@ -1,9 +1,25 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "slack-food-bot",
-  "main": "src/worker.ts",
+  "main": "src/cloudflare/worker.ts",
   "compatibility_date": "2026-08-20",
+  "d1_databases": [
+    {
+      "binding": "FOOD_BOT_DB",
+      "database_name": "slack-food-bot",
+      "database_id": "32b793b7-84d8-4c80-bf16-1e43154a51e0",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "queues": {
+    "producers": [{ "binding": "FOOD_JOBS", "queue": "food-jobs" }],
+    "consumers": [{ "queue": "food-jobs", "max_batch_size": 10, "max_retries": 4 }]
+  },
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
-    "TELEMETRY_ENVIRONMENT": "production"
+    "TELEMETRY_ENVIRONMENT": "production",
+    "PUBLIC_BASE_URL": "https://slack-food-bot.slack-food-bot.workers.dev"
   }
 }
