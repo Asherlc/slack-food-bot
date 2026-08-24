@@ -1,7 +1,11 @@
 import { DofekClient } from "../dofek/client.js";
 import { completeDofekLink, startDofekLink } from "./links.js";
 import { completeSlackOAuth, startSlackOAuth } from "./oauth.js";
-import { type CloudflareRuntimeEnv, processCloudflareFoodJob } from "./runtime.js";
+import {
+  type CloudflareRuntimeEnv,
+  notifySlackLinkCompleted,
+  processCloudflareFoodJob,
+} from "./runtime.js";
 import { handleSlackRequest, type SlackQueueJob } from "./slack.js";
 import { CloudflareStore } from "./store.js";
 
@@ -72,7 +76,25 @@ async function completeLinkCallback(request: Request, env: CloudflareEnv): Promi
     return new Response("Invalid Dofek link callback.", { status: 400 });
   try {
     const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
-    await completeDofekLink({ state, linkId, code, store, target: createDofekTarget(env) });
+    const identity = await completeDofekLink({
+      state,
+      linkId,
+      code,
+      store,
+      target: createDofekTarget(env),
+    });
+    const [teamId, userId] = identity.subject.split(":");
+    if (identity.namespace === "slack" && teamId && userId) {
+      try {
+        await notifySlackLinkCompleted({ teamId, userId, store });
+      } catch (error) {
+        console.error("Unable to send Slack link completion", {
+          teamId,
+          userId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
     return new Response("Your Dofek account is linked. You can return to Slack.");
   } catch {
     return new Response("This Dofek link is invalid or expired.", { status: 400 });

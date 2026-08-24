@@ -118,7 +118,7 @@ describe("Slack Worker endpoint", () => {
     ]);
   });
 
-  it("returns an ephemeral Dofek URL for a signed link command", async () => {
+  it("returns an ephemeral Dofek link button for a signed link command", async () => {
     const response = await handleSlackRequest(
       await signedRequest(
         "/slack/commands",
@@ -139,7 +139,43 @@ describe("Slack Worker endpoint", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       response_type: "ephemeral",
-      text: "Finish linking your Dofek account: https://dofek.example/link",
+      text: "Link your Dofek account to start logging food.",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Link your Dofek account to start logging food." },
+          accessory: {
+            type: "button",
+            text: { type: "plain_text", text: "Link Dofek", emoji: true },
+            url: "https://dofek.example/link",
+            action_id: "link_dofek",
+          },
+        },
+      ],
+    });
+  });
+
+  it("returns an ephemeral retry message when Dofek link creation fails", async () => {
+    const response = await handleSlackRequest(
+      await signedRequest(
+        "/slack/commands",
+        "command=%2Flink-dofek&team_id=T1&user_id=U1",
+        "application/x-www-form-urlencoded",
+      ),
+      {
+        signingSecret,
+        recordDelivery: async () => true,
+        enqueue: async () => undefined,
+        startLink: async () => {
+          throw new Error("Dofek credentials rejected");
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      response_type: "ephemeral",
+      text: "I couldn't start Dofek linking. Please try again shortly.",
     });
   });
 });

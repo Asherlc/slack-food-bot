@@ -91,10 +91,31 @@ async function handleCommand(body: string, dependencies: SlackDependencies): Pro
   const teamId = command.get("team_id");
   const userId = command.get("user_id");
   if (!teamId || !userId) return badRequest();
-  const link = await dependencies.startLink({ namespace: "slack", subject: `${teamId}:${userId}` });
+  let link: { authorizationUrl: string };
+  try {
+    link = await dependencies.startLink({ namespace: "slack", subject: `${teamId}:${userId}` });
+  } catch (error) {
+    console.error("Unable to start Dofek link", error);
+    return Response.json({
+      response_type: "ephemeral",
+      text: "I couldn't start Dofek linking. Please try again shortly.",
+    });
+  }
   return Response.json({
     response_type: "ephemeral",
-    text: `Finish linking your Dofek account: ${link.authorizationUrl}`,
+    text: "Link your Dofek account to start logging food.",
+    blocks: [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "Link your Dofek account to start logging food." },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: "Link Dofek", emoji: true },
+          url: link.authorizationUrl,
+          action_id: "link_dofek",
+        },
+      },
+    ],
   });
 }
 

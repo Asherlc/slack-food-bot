@@ -82,11 +82,20 @@ export function resolveAiCredentials(
 }
 
 type SlackInstallation = { botToken: string };
+type SlackInstallationStore = Pick<CloudflareStore, "loadInstallation">;
+
+export async function notifySlackLinkCompleted(input: {
+  teamId: string;
+  userId: string;
+  store: SlackInstallationStore;
+}): Promise<void> {
+  await new CloudflareSlackMessenger(input.store).publishLinkCompleted(input);
+}
 
 class CloudflareSlackMessenger {
-  readonly #store: CloudflareStore;
+  readonly #store: SlackInstallationStore;
 
-  constructor(store: CloudflareStore) {
+  constructor(store: SlackInstallationStore) {
     this.#store = store;
   }
 
@@ -129,6 +138,13 @@ class CloudflareSlackMessenger {
       channel: input.channelId,
       thread_ts: input.threadTs,
       text: "Before I can log food, link your Dofek account with `/link-dofek`.",
+    });
+  }
+
+  async publishLinkCompleted(input: { teamId: string; userId: string }): Promise<void> {
+    await this.#call(input.teamId, "chat.postMessage", {
+      channel: input.userId,
+      text: "Your Dofek account is linked. You can log food now.",
     });
   }
 

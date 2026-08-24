@@ -50,7 +50,7 @@ export async function completeDofekLink(input: {
     saveGrant(subject: string, grant: TargetGrant): Promise<void>;
   };
   target: Pick<LinkTarget, "exchangeIdentityLink">;
-}): Promise<void> {
+}): Promise<ExternalIdentity> {
   const link = await input.store.consumeLink(input.state);
   if (!link || link.linkId !== input.linkId) throw new Error("Invalid or expired link state");
   const grant = await input.target.exchangeIdentityLink({
@@ -60,6 +60,7 @@ export async function completeDofekLink(input: {
     identity: link.identity,
   });
   await input.store.saveGrant(link.identity.subject, grant);
+  return link.identity;
 }
 
 async function pkceS256(verifier: string): Promise<string> {
