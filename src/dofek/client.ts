@@ -49,7 +49,7 @@ export class DofekClient
   constructor(input: { baseUrl: string; clientCredential: string; fetch?: typeof fetch }) {
     this.#baseUrl = input.baseUrl.replace(/\/$/, "");
     this.#clientCredential = input.clientCredential;
-    this.#fetch = input.fetch ?? fetch;
+    this.#fetch = input.fetch ?? fetch.bind(globalThis);
   }
 
   async startIdentityLink(input: {

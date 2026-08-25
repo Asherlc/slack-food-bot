@@ -2,6 +2,37 @@ import { describe, expect, it, vi } from "vitest";
 import { DofekClient } from "./client.js";
 
 describe("DofekClient", () => {
+  it("preserves the global fetch receiver when no fetch override is supplied", async () => {
+    const originalFetch = globalThis.fetch;
+    const receiverAwareFetch = vi.fn(function (this: unknown) {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(
+        Response.json({
+          linkId: "link-1",
+          authorizationUrl: "https://dofek.example.test/link",
+          expiresAt: "2026-08-20T20:00:00.000Z",
+        }),
+      );
+    });
+    globalThis.fetch = receiverAwareFetch as typeof fetch;
+    try {
+      const client = new DofekClient({
+        baseUrl: "https://dofek.example.test",
+        clientCredential: "ext_client.secret",
+      });
+
+      await expect(
+        client.startIdentityLink({
+          redirectUri: "https://food-bot.example.test/dofek/link/callback",
+          codeChallenge: "a".repeat(43),
+          requestedScopes: ["nutrition:write"],
+        }),
+      ).resolves.toMatchObject({ linkId: "link-1" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("starts a PKCE link using client credentials", async () => {
     const fetch = vi.fn(async () =>
       Response.json({
