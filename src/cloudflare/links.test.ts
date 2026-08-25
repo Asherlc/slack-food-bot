@@ -3,7 +3,11 @@ import { completeDofekLink, startDofekLink } from "./links.js";
 
 describe("Cloudflare Dofek linking", () => {
   it("starts an S256 PKCE link and stores one-time state", async () => {
-    const saveLink = vi.fn(async () => undefined);
+    const savedStates: string[] = [];
+    const saveLink = vi.fn(async (state: string) => {
+      savedStates.push(state);
+    });
+    let requestedState: string | undefined;
     const result = await startDofekLink({
       identity: { namespace: "slack", subject: "T1:U1" },
       redirectUri: "https://food-bot.example/dofek/link/callback",
@@ -12,6 +16,7 @@ describe("Cloudflare Dofek linking", () => {
         startIdentityLink: async (input) => {
           expect(input.redirectUri).toBe("https://food-bot.example/dofek/link/callback");
           expect(input.codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
+          requestedState = (input as typeof input & { state?: string }).state;
           return {
             linkId: "link-1",
             authorizationUrl: "https://dofek.example/link",
@@ -30,6 +35,7 @@ describe("Cloudflare Dofek linking", () => {
       }),
       expect.any(Number),
     );
+    expect(requestedState).toBe(savedStates[0]);
   });
 
   it("exchanges each callback state once and encrypts the resulting grant", async () => {

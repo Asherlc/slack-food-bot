@@ -46,10 +46,15 @@ export class DofekClient
   readonly #clientCredential: string;
   readonly #fetch: typeof fetch;
 
-  constructor(input: { baseUrl: string; clientCredential: string; fetch?: typeof fetch }) {
+  constructor(input: {
+    baseUrl: string;
+    clientId: string;
+    clientSecret: string;
+    fetch?: typeof fetch;
+  }) {
     this.#baseUrl = input.baseUrl.replace(/\/$/, "");
-    this.#clientCredential = input.clientCredential;
-    this.#fetch = input.fetch ?? fetch;
+    this.#clientCredential = `${input.clientId}.${input.clientSecret}`;
+    this.#fetch = input.fetch ?? fetch.bind(globalThis);
   }
 
   async startIdentityLink(input: {
@@ -77,7 +82,7 @@ export class DofekClient
         Authorization: `Bearer ${this.#clientCredential}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ externalSubject: input.identity }),
+      body: JSON.stringify(input.identity),
     });
     if (!response.ok) throw new Error(`Dofek token reissue failed with status ${response.status}`);
 
@@ -119,7 +124,7 @@ export class DofekClient
         "Idempotency-Key": input.idempotencyKey,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ entries: input.entries }),
+      body: JSON.stringify({ entries: input.entries.map(canonicalizeDofekNutrients) }),
     });
     if (!response.ok)
       throw new Error(`Dofek nutrition write failed with status ${response.status}`);
@@ -135,4 +140,44 @@ export class DofekClient
       expiresInSeconds: grant.expiresIn,
     };
   }
+}
+
+const dofekNutrientAliases: Readonly<Record<string, string>> = {
+  calorie: "calories",
+  calories: "calories",
+  protein: "protein",
+  protein_g: "protein",
+  protein_grams: "protein",
+  carbohydrate: "carbohydrate",
+  carbohydrates: "carbohydrate",
+  carbs: "carbohydrate",
+  carbohydrate_g: "carbohydrate",
+  carbohydrates_g: "carbohydrate",
+  carbs_g: "carbohydrate",
+  fat: "fat",
+  fats: "fat",
+  fat_g: "fat",
+  fiber: "fiber",
+  fibre: "fiber",
+  fiber_g: "fiber",
+  fibre_g: "fiber",
+};
+
+function canonicalizeDofekNutrients(entry: NutritionWriteEntry): NutritionWriteEntry {
+  return {
+    ...entry,
+    nutrients: Object.fromEntries(
+      Object.entries(entry.nutrients).map(([nutrientId, amount]) => [
+        dofekNutrientAliases[normalizeNutrientId(nutrientId)] ?? nutrientId,
+        amount,
+      ]),
+    ),
+  };
+}
+
+function normalizeNutrientId(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
 }

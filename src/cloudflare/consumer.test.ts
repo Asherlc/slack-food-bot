@@ -47,6 +47,7 @@ describe("Cloudflare food Queue consumer", () => {
 
   it("creates encrypted pending entries after analyzing a Slack DM", async () => {
     const saved: unknown[] = [];
+    const loadedSubjects: string[] = [];
     await processFoodQueueJob(
       {
         kind: "event",
@@ -64,12 +65,15 @@ describe("Cloudflare food Queue consumer", () => {
         },
       },
       {
-        loadGrant: async () => ({
-          externalSubject: "T1:U1",
-          grantId: "grant-1",
-          accessToken: "token",
-          expiresInSeconds: 900,
-        }),
+        loadGrant: async (subject) => {
+          loadedSubjects.push(subject);
+          return {
+            externalSubject: "T1:U1",
+            grantId: "grant-1",
+            accessToken: "token",
+            expiresInSeconds: 900,
+          };
+        },
         publishLinkRequired: async () => undefined,
         analyze: async () => [oatmeal],
         publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
@@ -88,6 +92,7 @@ describe("Cloudflare food Queue consumer", () => {
         item: oatmeal,
       }),
     ]);
+    expect(loadedSubjects).toEqual(["T1:U1"]);
   });
 
   it("creates a draft when a user messages the writable App Home", async () => {
@@ -316,6 +321,7 @@ describe("Cloudflare food Queue consumer", () => {
 
   it("shows a failed save state and keeps the draft when Dofek confirmation fails", async () => {
     const phases: string[] = [];
+    const failures: unknown[] = [];
     const deleted: unknown[] = [];
     const entry = {
       id: "entry:Ev1:0",
@@ -357,10 +363,11 @@ describe("Cloudflare food Queue consumer", () => {
             phases.push("processing");
           },
           confirmFood: async () => {
-            throw new Error("Dofek nutrition write failed with status 401");
+            throw new Error("Dofek nutrition write failed with status 503");
           },
-          publishConfirmationFailure: async () => {
+          publishConfirmationFailure: async (input) => {
             phases.push("failed");
+            failures.push(input);
           },
           publishConfirmed: async () => {
             throw new Error("must not publish success");
@@ -373,6 +380,82 @@ describe("Cloudflare food Queue consumer", () => {
     ).resolves.toBeUndefined();
 
     expect(phases).toEqual(["processing", "failed"]);
+    expect(failures).toEqual([expect.objectContaining({ dofekStatus: 503 })]);
     expect(deleted).toEqual([]);
+  });
+
+  it("reissues a rejected Dofek grant and retries the confirmation once", async () => {
+    const entry = {
+      id: "entry:Ev1:0",
+      externalSubject: "slack:T1:U1",
+      date: "2024-03-09",
+      item: oatmeal,
+      channelId: "D1",
+      confirmationMessageTs: "2.0",
+      slackUserId: "U1",
+      threadTs: "1.0",
+      sourceMessageTs: "1.0",
+    };
+    const writes: string[] = [];
+    const savedTokens: string[] = [];
+    const reissues: unknown[] = [];
+
+    await processFoodQueueJob(
+      {
+        kind: "action",
+        action: "confirm",
+        deliveryId: "action:confirm:T1:U1:2.0",
+        payload: {
+          team: { id: "T1" },
+          user: { id: "U1" },
+          container: { channel_id: "D1", message_ts: "2.0" },
+        },
+      },
+      {
+        findPending: async () => [entry],
+        loadGrant: async () => ({
+          externalSubject: "opaque-subject",
+          grantId: "grant-1",
+          accessToken: "rejected-token",
+          expiresInSeconds: 900,
+        }),
+        saveGrant: async (_subject, grant) => {
+          savedTokens.push(grant.accessToken);
+        },
+        reissueGrant: async (input) => {
+          reissues.push(input);
+          return {
+            externalSubject: "opaque-subject",
+            grantId: "grant-1",
+            accessToken: "fresh-token",
+            expiresInSeconds: 900,
+          };
+        },
+        publishProcessing: async () => undefined,
+        confirmFood: async ({ grant }) => {
+          writes.push(grant.accessToken);
+          if (grant.accessToken === "rejected-token")
+            throw new Error("Dofek nutrition write failed with status 401");
+          return {
+            entries: [{ id: "server-entry", externalId: "entry:Ev1:0" }],
+            dailyIntake: {
+              date: "2024-03-09",
+              state: "unavailable",
+              summary: null,
+              resolution: {},
+            },
+          };
+        },
+        publishConfirmed: async () => undefined,
+        publishConfirmationFailure: async () => {
+          throw new Error("must not publish failure");
+        },
+        deletePending: async () => undefined,
+      },
+    );
+
+    expect(writes).toEqual(["rejected-token", "fresh-token"]);
+    expect(savedTokens).toEqual(["rejected-token", "fresh-token"]);
+    expect(reissues).toEqual([{ identity: { namespace: "slack", subject: "T1:U1" } }]);
   });
 });

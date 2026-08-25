@@ -2,6 +2,38 @@ import { describe, expect, it, vi } from "vitest";
 import { DofekClient } from "./client.js";
 
 describe("DofekClient", () => {
+  it("preserves the global fetch receiver when no fetch override is supplied", async () => {
+    const originalFetch = globalThis.fetch;
+    const receiverAwareFetch = vi.fn(function (this: unknown) {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(
+        Response.json({
+          linkId: "link-1",
+          authorizationUrl: "https://dofek.example.test/link",
+          expiresAt: "2026-08-20T20:00:00.000Z",
+        }),
+      );
+    });
+    globalThis.fetch = receiverAwareFetch as typeof fetch;
+    try {
+      const client = new DofekClient({
+        baseUrl: "https://dofek.example.test",
+        clientId: "ext_client",
+        clientSecret: "secret",
+      });
+
+      await expect(
+        client.startIdentityLink({
+          redirectUri: "https://food-bot.example.test/dofek/link/callback",
+          codeChallenge: "a".repeat(43),
+          requestedScopes: ["nutrition:write"],
+        }),
+      ).resolves.toMatchObject({ linkId: "link-1" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("starts a PKCE link using client credentials", async () => {
     const fetch = vi.fn(async () =>
       Response.json({
@@ -12,7 +44,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
 
@@ -48,7 +81,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
 
@@ -65,7 +99,7 @@ describe("DofekClient", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ Authorization: "Bearer ext_client.secret" }),
-        body: JSON.stringify({ externalSubject: { namespace: "slack", subject: "T1:U1" } }),
+        body: JSON.stringify({ namespace: "slack", subject: "T1:U1" }),
       }),
     );
   });
@@ -83,7 +117,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
 
@@ -129,7 +164,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
     const entry = {
@@ -138,7 +174,7 @@ describe("DofekClient", () => {
       foodName: "Oatmeal",
       foodDescription: "One bowl",
       category: "breads_and_cereals" as const,
-      nutrients: { calories: 320 },
+      nutrients: { calories: 320, protein_g: 12, carbs_g: 48, fat_g: 6 },
       externalId: "draft-1",
     };
 
@@ -170,7 +206,14 @@ describe("DofekClient", () => {
           Authorization: "Bearer access-token",
           "Idempotency-Key": "confirmation-draft-1",
         }),
-        body: JSON.stringify({ entries: [entry] }),
+        body: JSON.stringify({
+          entries: [
+            {
+              ...entry,
+              nutrients: { calories: 320, protein: 12, carbohydrate: 48, fat: 6 },
+            },
+          ],
+        }),
       }),
     );
   });

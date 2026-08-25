@@ -26,7 +26,8 @@ export function createApplicationRuntime(config: AppConfig) {
   const grants = new DofekLinkStore(encryptedStore);
   const target = new DofekClient({
     baseUrl: config.target.apiBaseUrl,
-    clientCredential: config.target.clientCredential,
+    clientId: config.target.clientId,
+    clientSecret: config.target.clientSecret,
   });
   const analyzer = createProductionNutritionAnalyzer(config.ai);
   const messenger = new InstalledSlackMessenger((teamId) => installations.fetchBotToken(teamId));

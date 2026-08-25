@@ -72,7 +72,7 @@ pnpm deploy:workers
 Set each required Worker secret interactively before publishing; do not put
 values in `wrangler.jsonc`, source control, or shell history. The required
 names are `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`,
-`REDIS_URL`, `TARGET_API_BASE_URL`, `TARGET_API_CLIENT_CREDENTIAL`,
+`REDIS_URL`, `TARGET_API_BASE_URL`, `TARGET_API_CLIENT_ID`, `TARGET_API_CLIENT_SECRET`,
 `AI_PROVIDER`, and `AI_API_KEY`:
 
 ```sh

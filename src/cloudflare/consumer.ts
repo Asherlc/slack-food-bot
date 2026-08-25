@@ -74,6 +74,7 @@ type ConsumerDependencies = Partial<{
     teamId: string;
     channelId: string;
     confirmationMessageTs: string;
+    dofekStatus?: number;
   }): Promise<void>;
 }>;
 
@@ -116,7 +117,7 @@ async function processEvent(
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   if (!text) return;
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
-  if (!(await dependencies.loadGrant(`slack:${teamId}:${userId}`))) {
+  if (!(await dependencies.loadGrant(`${teamId}:${userId}`))) {
     await dependencies.publishLinkRequired({ teamId, channelId, threadTs });
     return;
   }
@@ -206,14 +207,22 @@ async function processAction(
     confirmationMessageTs: messageTs,
   });
   try {
-    const grant =
+    let grant =
       (await dependencies.loadGrant(subject)) ?? (await dependencies.reissueGrant({ identity }));
     await dependencies.saveGrant(subject, grant);
-    const result = await dependencies.confirmFood({
-      grant,
+    const confirmation = {
       idempotencyKey: await confirmationIdempotencyKey(entries.map((entry) => entry.id)),
       entries: entries.map((entry) => ({ ...entry.item, date: entry.date, externalId: entry.id })),
-    });
+    };
+    let result: ConfirmedNutritionWrite;
+    try {
+      result = await dependencies.confirmFood({ grant, ...confirmation });
+    } catch (error) {
+      if (dofekStatus(error) !== 401) throw error;
+      grant = await dependencies.reissueGrant({ identity });
+      await dependencies.saveGrant(subject, grant);
+      result = await dependencies.confirmFood({ grant, ...confirmation });
+    }
     await dependencies.publishConfirmed({
       teamId,
       channelId,
@@ -222,6 +231,7 @@ async function processAction(
     });
     await dependencies.deletePending(entries.map((entry) => entry.id));
   } catch (error) {
+    const status = dofekStatus(error);
     console.error("Slack food confirmation failed", {
       deliveryId: job.deliveryId,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -230,8 +240,15 @@ async function processAction(
       teamId,
       channelId,
       confirmationMessageTs: messageTs,
+      ...(status === undefined ? {} : { dofekStatus: status }),
     });
   }
+}
+
+function dofekStatus(error: unknown): number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const match = /^Dofek nutrition write failed with status (\d{3})$/.exec(error.message);
+  return match ? Number(match[1]) : undefined;
 }
 
 function objectField(

@@ -92,13 +92,17 @@ export function formatProcessing(): BlockKitBlock[] {
   ];
 }
 
-export function formatConfirmationFailure(): BlockKitBlock[] {
+export function formatConfirmationFailure(input: { dofekStatus?: number } = {}): BlockKitBlock[] {
+  const status =
+    typeof input.dofekStatus === "number" && input.dofekStatus >= 100 && input.dofekStatus <= 599
+      ? ` Dofek status: ${input.dofekStatus}.`
+      : "";
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "This food log could not be saved. Link Dofek if needed, then try again.",
+        text: `This food log could not be saved.${status} Link Dofek if needed, then try again.`,
       },
     },
     {
