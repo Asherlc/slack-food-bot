@@ -174,7 +174,7 @@ describe("DofekClient", () => {
       foodName: "Oatmeal",
       foodDescription: "One bowl",
       category: "breads_and_cereals" as const,
-      nutrients: { calories: 320 },
+      nutrients: { calories: 320, protein_g: 12, carbs_g: 48, fat_g: 6 },
       externalId: "draft-1",
     };
 
@@ -206,7 +206,14 @@ describe("DofekClient", () => {
           Authorization: "Bearer access-token",
           "Idempotency-Key": "confirmation-draft-1",
         }),
-        body: JSON.stringify({ entries: [entry] }),
+        body: JSON.stringify({
+          entries: [
+            {
+              ...entry,
+              nutrients: { calories: 320, protein: 12, carbohydrate: 48, fat: 6 },
+            },
+          ],
+        }),
       }),
     );
   });
