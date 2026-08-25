@@ -23,7 +23,8 @@ export type CloudflareRuntimeEnv = {
   AI_PROVIDER?: string;
   AI_API_KEY?: string;
   TARGET_API_BASE_URL: string;
-  TARGET_API_CLIENT_CREDENTIAL: string;
+  TARGET_API_CLIENT_ID: string;
+  TARGET_API_CLIENT_SECRET: string;
 };
 
 export async function processCloudflareFoodJob(
@@ -37,7 +38,8 @@ export async function processCloudflareFoodJob(
   });
   const target = new DofekClient({
     baseUrl: env.TARGET_API_BASE_URL,
-    clientCredential: env.TARGET_API_CLIENT_CREDENTIAL,
+    clientId: env.TARGET_API_CLIENT_ID,
+    clientSecret: env.TARGET_API_CLIENT_SECRET,
   });
   const messenger = new CloudflareSlackMessenger(store);
   await processFoodQueueJob(job, {

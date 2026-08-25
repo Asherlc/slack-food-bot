@@ -125,7 +125,8 @@ async function completeOAuthCallback(request: Request, env: CloudflareEnv): Prom
 function createDofekTarget(env: CloudflareEnv): DofekClient {
   return new DofekClient({
     baseUrl: env.TARGET_API_BASE_URL,
-    clientCredential: env.TARGET_API_CLIENT_CREDENTIAL,
+    clientId: env.TARGET_API_CLIENT_ID,
+    clientSecret: env.TARGET_API_CLIENT_SECRET,
   });
 }
 

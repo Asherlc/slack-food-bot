@@ -18,7 +18,8 @@ describe("DofekClient", () => {
     try {
       const client = new DofekClient({
         baseUrl: "https://dofek.example.test",
-        clientCredential: "ext_client.secret",
+        clientId: "ext_client",
+        clientSecret: "secret",
       });
 
       await expect(
@@ -43,7 +44,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
 
@@ -79,7 +81,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
 
@@ -114,7 +117,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
 
@@ -160,7 +164,8 @@ describe("DofekClient", () => {
     );
     const client = new DofekClient({
       baseUrl: "https://dofek.example.test",
-      clientCredential: "ext_client.secret",
+      clientId: "ext_client",
+      clientSecret: "secret",
       fetch,
     });
     const entry = {

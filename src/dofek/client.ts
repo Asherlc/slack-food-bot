@@ -46,9 +46,14 @@ export class DofekClient
   readonly #clientCredential: string;
   readonly #fetch: typeof fetch;
 
-  constructor(input: { baseUrl: string; clientCredential: string; fetch?: typeof fetch }) {
+  constructor(input: {
+    baseUrl: string;
+    clientId: string;
+    clientSecret: string;
+    fetch?: typeof fetch;
+  }) {
     this.#baseUrl = input.baseUrl.replace(/\/$/, "");
-    this.#clientCredential = input.clientCredential;
+    this.#clientCredential = `${input.clientId}.${input.clientSecret}`;
     this.#fetch = input.fetch ?? fetch.bind(globalThis);
   }
 

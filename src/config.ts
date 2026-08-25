@@ -7,7 +7,8 @@ const requiredConfiguration = [
   "SLACK_STATE_SECRET",
   "REDIS_URL",
   "TARGET_API_BASE_URL",
-  "TARGET_API_CLIENT_CREDENTIAL",
+  "TARGET_API_CLIENT_ID",
+  "TARGET_API_CLIENT_SECRET",
   "BOT_STATE_ENCRYPTION_KEY",
   "PUBLIC_BASE_URL",
 ] as const;
@@ -19,7 +20,8 @@ const configurationSchema = z.object({
   SLACK_STATE_SECRET: z.string().min(32),
   REDIS_URL: z.url(),
   TARGET_API_BASE_URL: z.url(),
-  TARGET_API_CLIENT_CREDENTIAL: z.string().min(1),
+  TARGET_API_CLIENT_ID: z.string().min(1),
+  TARGET_API_CLIENT_SECRET: z.string().min(1),
   BOT_STATE_ENCRYPTION_KEY: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   PUBLIC_BASE_URL: z.url().refine((value) => new URL(value).protocol === "https:"),
   GEMINI_API_KEY: z.string().min(1).optional(),
@@ -39,7 +41,8 @@ export type AppConfig = {
   redisUrl: string;
   target: {
     apiBaseUrl: string;
-    clientCredential: string;
+    clientId: string;
+    clientSecret: string;
   };
   ai: {
     geminiApiKey?: string;
@@ -97,7 +100,8 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     redisUrl: value.REDIS_URL,
     target: {
       apiBaseUrl: value.TARGET_API_BASE_URL,
-      clientCredential: value.TARGET_API_CLIENT_CREDENTIAL,
+      clientId: value.TARGET_API_CLIENT_ID,
+      clientSecret: value.TARGET_API_CLIENT_SECRET,
     },
     ai: {
       ...(value.GEMINI_API_KEY ? { geminiApiKey: value.GEMINI_API_KEY } : {}),
