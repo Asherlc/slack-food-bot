@@ -74,6 +74,7 @@ type ConsumerDependencies = Partial<{
     teamId: string;
     channelId: string;
     confirmationMessageTs: string;
+    dofekStatus?: number;
   }): Promise<void>;
 }>;
 
@@ -222,6 +223,7 @@ async function processAction(
     });
     await dependencies.deletePending(entries.map((entry) => entry.id));
   } catch (error) {
+    const status = dofekStatus(error);
     console.error("Slack food confirmation failed", {
       deliveryId: job.deliveryId,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -230,8 +232,15 @@ async function processAction(
       teamId,
       channelId,
       confirmationMessageTs: messageTs,
+      ...(status === undefined ? {} : { dofekStatus: status }),
     });
   }
+}
+
+function dofekStatus(error: unknown): number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  const match = /^Dofek nutrition write failed with status (\d{3})$/.exec(error.message);
+  return match ? Number(match[1]) : undefined;
 }
 
 function objectField(

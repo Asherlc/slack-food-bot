@@ -181,12 +181,15 @@ class CloudflareSlackMessenger {
     teamId: string;
     channelId: string;
     confirmationMessageTs: string;
+    dofekStatus?: number;
   }): Promise<void> {
     await this.#call(input.teamId, "chat.update", {
       channel: input.channelId,
       ts: input.confirmationMessageTs,
       text: "Food log could not be saved. Try again.",
-      blocks: formatConfirmationFailure(),
+      blocks: formatConfirmationFailure(
+        input.dofekStatus === undefined ? {} : { dofekStatus: input.dofekStatus },
+      ),
     });
   }
 

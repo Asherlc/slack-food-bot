@@ -321,6 +321,7 @@ describe("Cloudflare food Queue consumer", () => {
 
   it("shows a failed save state and keeps the draft when Dofek confirmation fails", async () => {
     const phases: string[] = [];
+    const failures: unknown[] = [];
     const deleted: unknown[] = [];
     const entry = {
       id: "entry:Ev1:0",
@@ -364,8 +365,9 @@ describe("Cloudflare food Queue consumer", () => {
           confirmFood: async () => {
             throw new Error("Dofek nutrition write failed with status 401");
           },
-          publishConfirmationFailure: async () => {
+          publishConfirmationFailure: async (input) => {
             phases.push("failed");
+            failures.push(input);
           },
           publishConfirmed: async () => {
             throw new Error("must not publish success");
@@ -378,6 +380,7 @@ describe("Cloudflare food Queue consumer", () => {
     ).resolves.toBeUndefined();
 
     expect(phases).toEqual(["processing", "failed"]);
+    expect(failures).toEqual([expect.objectContaining({ dofekStatus: 401 })]);
     expect(deleted).toEqual([]);
   });
 });

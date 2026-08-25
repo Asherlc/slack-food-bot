@@ -96,9 +96,10 @@ describe("Slack Block Kit formatting", () => {
   });
 
   it("renders a failed confirmation with retry and cancel actions", () => {
-    const text = JSON.stringify(formatConfirmationFailure());
+    const text = JSON.stringify(formatConfirmationFailure({ dofekStatus: 422 }));
 
     expect(text).toContain("could not be saved");
+    expect(text).toContain("Dofek status: 422");
     expect(text).toContain("food_confirm");
     expect(text).toContain("food_cancel");
   });
