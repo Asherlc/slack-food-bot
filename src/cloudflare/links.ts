@@ -5,6 +5,7 @@ type LinkTarget = {
     redirectUri: string;
     codeChallenge: string;
     requestedScopes: ReadonlyArray<string>;
+    state?: string;
   }): Promise<{ linkId: string; authorizationUrl: string; expiresAt: string }>;
   exchangeIdentityLink(input: {
     linkId: string;
@@ -28,6 +29,7 @@ export async function startDofekLink(input: {
     redirectUri: input.redirectUri,
     codeChallenge: await pkceS256(verifier),
     requestedScopes: ["nutrition:write"],
+    state,
   });
   const expiry = Date.parse(start.expiresAt);
   const ttlSeconds = Number.isFinite(expiry)
