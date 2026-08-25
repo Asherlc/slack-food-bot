@@ -116,7 +116,7 @@ async function processEvent(
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   if (!text) return;
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
-  if (!(await dependencies.loadGrant(`slack:${teamId}:${userId}`))) {
+  if (!(await dependencies.loadGrant(`${teamId}:${userId}`))) {
     await dependencies.publishLinkRequired({ teamId, channelId, threadTs });
     return;
   }

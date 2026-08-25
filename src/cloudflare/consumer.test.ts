@@ -47,6 +47,7 @@ describe("Cloudflare food Queue consumer", () => {
 
   it("creates encrypted pending entries after analyzing a Slack DM", async () => {
     const saved: unknown[] = [];
+    const loadedSubjects: string[] = [];
     await processFoodQueueJob(
       {
         kind: "event",
@@ -64,12 +65,15 @@ describe("Cloudflare food Queue consumer", () => {
         },
       },
       {
-        loadGrant: async () => ({
-          externalSubject: "T1:U1",
-          grantId: "grant-1",
-          accessToken: "token",
-          expiresInSeconds: 900,
-        }),
+        loadGrant: async (subject) => {
+          loadedSubjects.push(subject);
+          return {
+            externalSubject: "T1:U1",
+            grantId: "grant-1",
+            accessToken: "token",
+            expiresInSeconds: 900,
+          };
+        },
         publishLinkRequired: async () => undefined,
         analyze: async () => [oatmeal],
         publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
@@ -88,6 +92,7 @@ describe("Cloudflare food Queue consumer", () => {
         item: oatmeal,
       }),
     ]);
+    expect(loadedSubjects).toEqual(["T1:U1"]);
   });
 
   it("creates a draft when a user messages the writable App Home", async () => {
