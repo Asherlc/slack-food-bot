@@ -82,7 +82,7 @@ export class DofekClient
         Authorization: `Bearer ${this.#clientCredential}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ externalSubject: input.identity }),
+      body: JSON.stringify(input.identity),
     });
     if (!response.ok) throw new Error(`Dofek token reissue failed with status ${response.status}`);
 

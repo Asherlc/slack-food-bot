@@ -207,14 +207,22 @@ async function processAction(
     confirmationMessageTs: messageTs,
   });
   try {
-    const grant =
+    let grant =
       (await dependencies.loadGrant(subject)) ?? (await dependencies.reissueGrant({ identity }));
     await dependencies.saveGrant(subject, grant);
-    const result = await dependencies.confirmFood({
-      grant,
+    const confirmation = {
       idempotencyKey: await confirmationIdempotencyKey(entries.map((entry) => entry.id)),
       entries: entries.map((entry) => ({ ...entry.item, date: entry.date, externalId: entry.id })),
-    });
+    };
+    let result: ConfirmedNutritionWrite;
+    try {
+      result = await dependencies.confirmFood({ grant, ...confirmation });
+    } catch (error) {
+      if (dofekStatus(error) !== 401) throw error;
+      grant = await dependencies.reissueGrant({ identity });
+      await dependencies.saveGrant(subject, grant);
+      result = await dependencies.confirmFood({ grant, ...confirmation });
+    }
     await dependencies.publishConfirmed({
       teamId,
       channelId,

@@ -99,7 +99,7 @@ describe("DofekClient", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ Authorization: "Bearer ext_client.secret" }),
-        body: JSON.stringify({ externalSubject: { namespace: "slack", subject: "T1:U1" } }),
+        body: JSON.stringify({ namespace: "slack", subject: "T1:U1" }),
       }),
     );
   });
