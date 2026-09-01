@@ -4,6 +4,7 @@ import {
 } from "../ai/nutrition-analyzer.js";
 import { DofekClient } from "../dofek/client.js";
 import {
+  type BlockKitBlock,
   formatConfirmation,
   formatConfirmationFailure,
   formatDraft,
@@ -81,6 +82,19 @@ export function resolveAiCredentials(
       ? { mistralApiKey: env.MISTRAL_API_KEY ?? env.AI_API_KEY }
       : {}),
   };
+}
+
+export async function publishInteractiveMessageUpdate(
+  responseUrl: string,
+  input: { text: string; blocks: BlockKitBlock[] },
+): Promise<void> {
+  const response = await fetch(responseUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json; charset=utf-8" },
+    body: JSON.stringify({ replace_original: true, ...input }),
+  });
+  if (!response.ok)
+    throw new Error(`Slack interactive response failed with status ${response.status}`);
 }
 
 type SlackInstallation = { botToken: string };
@@ -182,14 +196,30 @@ class CloudflareSlackMessenger {
     channelId: string;
     confirmationMessageTs: string;
     dofekStatus?: number;
+    responseUrl?: string;
   }): Promise<void> {
+    const blocks = formatConfirmationFailure(
+      input.dofekStatus === undefined ? {} : { dofekStatus: input.dofekStatus },
+    );
+    if (input.responseUrl) {
+      try {
+        await publishInteractiveMessageUpdate(input.responseUrl, {
+          text: "Food log could not be saved. Try again.",
+          blocks,
+        });
+        return;
+      } catch (error) {
+        console.error("Unable to update Slack interaction response", {
+          teamId: input.teamId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
     await this.#call(input.teamId, "chat.update", {
       channel: input.channelId,
       ts: input.confirmationMessageTs,
       text: "Food log could not be saved. Try again.",
-      blocks: formatConfirmationFailure(
-        input.dofekStatus === undefined ? {} : { dofekStatus: input.dofekStatus },
-      ),
+      blocks,
     });
   }
 
