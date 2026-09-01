@@ -384,6 +384,64 @@ describe("Cloudflare food Queue consumer", () => {
     expect(deleted).toEqual([]);
   });
 
+  it("shows a failed save state when updating the processing card fails", async () => {
+    const failures: unknown[] = [];
+    const entry = {
+      id: "entry:Ev1:0",
+      externalSubject: "slack:T1:U1",
+      date: "2024-03-09",
+      item: oatmeal,
+      channelId: "D1",
+      confirmationMessageTs: "2.0",
+      slackUserId: "U1",
+      threadTs: "1.0",
+      sourceMessageTs: "1.0",
+    };
+
+    await expect(
+      processFoodQueueJob(
+        {
+          kind: "action",
+          action: "confirm",
+          deliveryId: "action:confirm:T1:U1:2.0:1710000000.000001",
+          payload: {
+            team: { id: "T1" },
+            user: { id: "U1" },
+            container: { channel_id: "D1", message_ts: "2.0" },
+            response_url: "https://hooks.slack.test/response",
+          },
+        },
+        {
+          findPending: async () => [entry],
+          loadGrant: async () => {
+            throw new Error("must not load grant");
+          },
+          saveGrant: async () => undefined,
+          reissueGrant: async () => {
+            throw new Error("must not reissue");
+          },
+          publishProcessing: async () => {
+            throw new Error("Slack chat.update failed with status 500");
+          },
+          confirmFood: async () => {
+            throw new Error("must not confirm");
+          },
+          publishConfirmationFailure: async (input) => {
+            failures.push(input);
+          },
+          publishConfirmed: async () => {
+            throw new Error("must not publish success");
+          },
+          deletePending: async () => undefined,
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(failures).toEqual([
+      expect.objectContaining({ responseUrl: "https://hooks.slack.test/response" }),
+    ]);
+  });
+
   it("reissues a rejected Dofek grant and retries the confirmation once", async () => {
     const entry = {
       id: "entry:Ev1:0",

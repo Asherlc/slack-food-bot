@@ -75,6 +75,7 @@ type ConsumerDependencies = Partial<{
     channelId: string;
     confirmationMessageTs: string;
     dofekStatus?: number;
+    responseUrl?: string;
   }): Promise<void>;
 }>;
 
@@ -201,12 +202,13 @@ async function processAction(
   }
   const subject = `${teamId}:${userId}`;
   const identity = { namespace: "slack", subject };
-  await dependencies.publishProcessing({
-    teamId,
-    channelId,
-    confirmationMessageTs: messageTs,
-  });
+  const responseUrl = stringField(job.payload, "response_url");
   try {
+    await dependencies.publishProcessing({
+      teamId,
+      channelId,
+      confirmationMessageTs: messageTs,
+    });
     let grant =
       (await dependencies.loadGrant(subject)) ?? (await dependencies.reissueGrant({ identity }));
     await dependencies.saveGrant(subject, grant);
@@ -241,6 +243,7 @@ async function processAction(
       channelId,
       confirmationMessageTs: messageTs,
       ...(status === undefined ? {} : { dofekStatus: status }),
+      ...(responseUrl === undefined ? {} : { responseUrl }),
     });
   }
 }
