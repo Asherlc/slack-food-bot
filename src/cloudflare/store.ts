@@ -152,6 +152,15 @@ export class CloudflareStore {
       .run();
     return result.meta.changes === 1;
   }
+
+  async recordQueueFailure(deliveryId: string, error: string): Promise<void> {
+    await this.#database
+      .prepare(
+        "INSERT INTO queue_failures (delivery_id, error, occurred_at) VALUES (?, ?, unixepoch()) ON CONFLICT(delivery_id) DO UPDATE SET error = excluded.error, occurred_at = excluded.occurred_at",
+      )
+      .bind(deliveryId, error.slice(0, 500))
+      .run();
+  }
 }
 
 function clarificationState(input: ClarificationKey): string {
