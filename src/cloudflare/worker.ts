@@ -18,7 +18,11 @@ export type CloudflareEnv = CloudflareRuntimeEnv & {
 };
 
 const worker = {
-  async fetch(request: Request, env: CloudflareEnv): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: CloudflareEnv,
+    execution: { waitUntil(promise: Promise<unknown>): void } = { waitUntil: () => undefined },
+  ): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/health") return Response.json({ status: "ok" });
     if (request.method === "GET" && (path === "/" || path === "/slack/install")) {
@@ -38,7 +42,9 @@ const worker = {
       return handleSlackRequest(request, {
         signingSecret: env.SLACK_SIGNING_SECRET,
         recordDelivery: (deliveryId) => store.recordDelivery(deliveryId),
-        enqueue: (job) => env.FOOD_JOBS.send(job),
+        enqueue: async (job) => {
+          execution.waitUntil(processCloudflareFoodJob(job, env));
+        },
         startLink: (identity) =>
           startDofekLink({
             identity,
