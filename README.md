@@ -73,7 +73,7 @@ Set each required Worker secret interactively before publishing; do not put
 values in `wrangler.jsonc`, source control, or shell history. The required
 names are `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`,
 `REDIS_URL`, `TARGET_API_BASE_URL`, `TARGET_API_CLIENT_ID`, `TARGET_API_CLIENT_SECRET`,
-`AI_PROVIDER`, and `AI_API_KEY`:
+and `BOT_STATE_ENCRYPTION_KEY`:
 
 ```sh
 wrangler secret put SLACK_CLIENT_ID
@@ -83,6 +83,9 @@ Repeat `wrangler secret put <NAME>` for every required name. `PORT` is only for
 the Node HTTP server, while `TELEMETRY_ENVIRONMENT` is the non-secret Worker
 variable defined in `wrangler.jsonc`; `TELEMETRY_DSN` is optional and should be
 set with `wrangler secret put TELEMETRY_DSN` only when telemetry is enabled.
+The Cloudflare deployment always uses the native `AI` binding declared in
+`wrangler.jsonc`; provider credentials and provider-selection secrets do not
+participate in Worker routing.
 
 Upstash Redis is future integration configuration only: no Upstash connection
 or Redis store is active in the Worker runtime today. Before planning traffic,

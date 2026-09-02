@@ -10,6 +10,7 @@ const env: CloudflareEnv = {
   TARGET_API_CLIENT_ID: "client",
   TARGET_API_CLIENT_SECRET: "credential",
   PUBLIC_BASE_URL: "https://food-bot.example",
+  AI: { run: async () => ({ response: '{"items":[]}' }) },
   FOOD_BOT_DB: {
     prepare: () => ({
       bind: () => ({
