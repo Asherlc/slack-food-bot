@@ -15,7 +15,7 @@ import { processFoodQueueJob } from "./consumer.js";
 import type { SlackQueueJob } from "./slack.js";
 import { CloudflareStore, type D1DatabaseLike } from "./store.js";
 
-const maxSlackImageBytes = 10 * 1024 * 1024;
+const maxSlackImageBytes = 5 * 1024 * 1024;
 
 export type CloudflareRuntimeEnv = {
   BOT_STATE_ENCRYPTION_KEY: string;
@@ -95,18 +95,13 @@ export async function analyzeSlackImage(input: {
   });
   if (!response.ok) throw new Error(`Slack image download failed with status ${response.status}`);
   const responseMediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
-  if (
-    responseMediaType &&
-    !responseMediaType.startsWith("image/") &&
-    responseMediaType !== "application/octet-stream"
-  ) {
-    throw new Error(`Slack image download returned a non-image response: ${responseMediaType}`);
-  }
+  if (!responseMediaType?.startsWith("image/"))
+    throw new Error("Slack image download did not return an image");
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxSlackImageBytes)
-    throw new Error("Slack image is too large to analyze");
+    throw new Error("Slack image download exceeds 5 MiB");
   const image = await readImageBytes(response);
-  return input.analyze(image, input.mediaType, input.text, input.localTime);
+  return input.analyze(image, responseMediaType, input.text, input.localTime);
 }
 
 function trustedSlackImageUrl(value: string): URL {
@@ -136,7 +131,7 @@ async function readImageBytes(response: Response): Promise<Uint8Array> {
       size += chunk.value.byteLength;
       if (size > maxSlackImageBytes) {
         await reader.cancel().catch(() => undefined);
-        throw new Error("Slack image is too large to analyze");
+        throw new Error("Slack image download exceeds 5 MiB");
       }
       chunks.push(chunk.value);
     }

@@ -26,6 +26,133 @@ describe("Cloudflare AI credentials", () => {
 });
 
 describe("Slack image analysis", () => {
+  it("reports a failed Slack image download", async () => {
+    vi.stubGlobal("fetch", async () => new Response("forbidden", { status: 403 }));
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "lunch",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download failed with status 403");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects a non-image Slack download before analysis", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () => new Response("Slack error page", { headers: { "content-type": "text/html" } }),
+    );
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "lunch",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download did not return an image");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects an oversized Slack image from its declared length", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(new Uint8Array(), {
+          headers: { "content-type": "image/jpeg", "content-length": "5242881" },
+        }),
+    );
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "lunch",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download exceeds 5 MiB");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects an oversized chunked Slack image before buffering it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(5 * 1024 * 1024 + 1));
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "image/jpeg" } },
+        ),
+    );
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "lunch",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download exceeds 5 MiB");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("accepts a Slack image at the size limit", async () => {
+    const image = new Uint8Array(5 * 1024 * 1024);
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(image, {
+          headers: { "content-type": "image/jpeg", "content-length": String(image.byteLength) },
+        }),
+    );
+    const received: number[] = [];
+
+    try {
+      await analyzeSlackImage({
+        url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+        mediaType: "image/jpeg",
+        text: "lunch",
+        localTime: "12:00",
+        botToken: "bot-token",
+        analyze: async (value) => {
+          received.push(value.byteLength);
+          return items;
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(received).toEqual([5 * 1024 * 1024]);
+  });
+
   it("downloads a private Slack image with the installation token and passes only its bytes to analysis", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe("https://files.slack.com/files-pri/T1-F1/download/F1.jpg");
@@ -99,7 +226,7 @@ describe("Slack image analysis", () => {
           botToken: "bot-token",
           analyze: async () => items,
         }),
-      ).rejects.toThrow(/too large/);
+      ).rejects.toThrow("Slack image download exceeds 5 MiB");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -131,7 +258,7 @@ describe("Slack image analysis", () => {
           botToken: "bot-token",
           analyze: async () => items,
         }),
-      ).rejects.toThrow(/too large/);
+      ).rejects.toThrow("Slack image download exceeds 5 MiB");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -153,7 +280,7 @@ describe("Slack image analysis", () => {
           botToken: "bot-token",
           analyze: async () => items,
         }),
-      ).rejects.toThrow(/non-image response/);
+      ).rejects.toThrow("Slack image download did not return an image");
     } finally {
       vi.unstubAllGlobals();
     }

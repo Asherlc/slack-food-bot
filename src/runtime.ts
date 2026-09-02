@@ -45,7 +45,7 @@ export function createWebRuntime(config: AppConfig) {
     stateSecret: config.slack.stateSecret,
     redirectUri: `${config.publicBaseUrl}/slack/oauth_redirect`,
     installationStore: runtime.installations as never,
-    scopes: ["app_mentions:read", "chat:write", "commands", "im:history"],
+    scopes: ["app_mentions:read", "chat:write", "commands", "files:read", "im:history"],
   });
   receiver.app.get("/health", (_request, response) => response.status(200).json({ status: "ok" }));
   receiver.app.get("/dofek/link/callback", async (request, response) => {

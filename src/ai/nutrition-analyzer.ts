@@ -149,8 +149,7 @@ function imageDataUrl(image: Uint8Array, mediaType: string): string {
   return `data:${mediaType};base64,${btoa(binary)}`;
 }
 
-function workerPromptFor(input: NutritionGeneration): string {
-  if (input.kind !== "analyze-image") return promptFor(input) as string;
+function workerPromptFor(input: Extract<NutritionGeneration, { kind: "analyze-image" }>): string {
   return `${nutritionInstruction()}\nLocal time: ${input.localTime}\nOptional photo caption: ${input.text || "(none)"}`;
 }
 

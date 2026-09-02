@@ -158,7 +158,8 @@ async function processEvent(
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
   if (Number.isNaN(time.valueOf())) return;
-  const localTime = time.toTimeString().slice(0, 5);
+  // Slack event payloads do not include the sender's timezone, so analysis uses UTC consistently.
+  const localTime = time.toISOString().slice(11, 16);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
   let items: NutritionItem[];
   if (photo) {
