@@ -1,15 +1,60 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  analyzeSlackImage,
   notifySlackLinkCompleted,
   publishInteractiveMessageUpdate,
   resolveAiCredentials,
 } from "./runtime.js";
+
+const items = [
+  {
+    foodName: "Oatmeal",
+    foodDescription: "One bowl",
+    category: "breads_and_cereals" as const,
+    meal: "breakfast" as const,
+    nutrients: { calories: 320 },
+  },
+];
 
 describe("Cloudflare AI credentials", () => {
   it("uses the legacy generic key for a configured Gemini provider", () => {
     expect(resolveAiCredentials({ AI_PROVIDER: "gemini", AI_API_KEY: "key" })).toEqual({
       geminiApiKey: "key",
     });
+  });
+});
+
+describe("Slack image analysis", () => {
+  it("downloads a private Slack image with the installation token and passes only its bytes to analysis", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe("https://files.slack.test/F1.jpg");
+      expect(init?.headers).toEqual({ Authorization: "Bearer bot-token" });
+      return new Response(new Uint8Array([255, 216, 255]), {
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const inputs: unknown[] = [];
+
+    try {
+      await analyzeSlackImage({
+        url: "https://files.slack.test/F1.jpg",
+        mediaType: "image/jpeg",
+        text: "lunch",
+        localTime: "12:00",
+        botToken: "bot-token",
+        analyze: async (image, mediaType, text, localTime) => {
+          inputs.push({ image: [...image], mediaType, text, localTime });
+          return items;
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(inputs).toEqual([
+      { image: [255, 216, 255], mediaType: "image/jpeg", text: "lunch", localTime: "12:00" },
+    ]);
   });
 });
 

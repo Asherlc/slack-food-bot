@@ -45,6 +45,16 @@ export async function processCloudflareFoodJob(
   const messenger = new CloudflareSlackMessenger(store);
   await processFoodQueueJob(job, {
     analyze: (text, localTime) => analyzer.analyze(text, localTime),
+    analyzeImage: async (input) => {
+      const installation = await store.loadInstallation<SlackInstallation>(input.teamId);
+      if (!installation?.botToken) throw new Error("Slack app is not installed for this workspace");
+      return analyzeSlackImage({
+        ...input,
+        botToken: installation.botToken,
+        analyze: (image, mediaType, text, localTime) =>
+          analyzer.analyzeImage(image, mediaType, text, localTime),
+      });
+    },
     saveClarification: (input) => store.saveClarification(input),
     consumeClarification: (input) => store.consumeClarification(input),
     publishDraft: (input) => messenger.publishDraft(input),
@@ -61,6 +71,27 @@ export async function processCloudflareFoodJob(
     publishConfirmed: (input) => messenger.publishConfirmed(input),
     publishConfirmationFailure: (input) => messenger.publishConfirmationFailure(input),
   });
+}
+
+export async function analyzeSlackImage(input: {
+  url: string;
+  mediaType: string;
+  text: string;
+  localTime: string;
+  botToken: string;
+  analyze(
+    image: Uint8Array,
+    mediaType: string,
+    text: string,
+    localTime: string,
+  ): Promise<NutritionItem[]>;
+}): Promise<NutritionItem[]> {
+  const response = await fetch(input.url, {
+    headers: { Authorization: `Bearer ${input.botToken}` },
+  });
+  if (!response.ok) throw new Error(`Slack image download failed with status ${response.status}`);
+  const image = new Uint8Array(await response.arrayBuffer());
+  return input.analyze(image, input.mediaType, input.text, input.localTime);
 }
 
 export function resolveAiCredentials(

@@ -16,6 +16,24 @@ const items = [
 ];
 
 describe("NutritionAnalyzer", () => {
+  it("passes a meal photo and optional caption to the vision analyzer", async () => {
+    const gemini: NutritionGenerator = { generate: vi.fn(async () => ({ items })) };
+    const analyzer = new NutritionAnalyzer({ gemini });
+    const image = new Uint8Array([255, 216, 255]);
+
+    await expect(
+      analyzer.analyzeImage(image, "image/jpeg", "with avocado", "12:30"),
+    ).resolves.toEqual(items);
+
+    expect(gemini.generate).toHaveBeenCalledWith({
+      kind: "analyze-image",
+      image,
+      mediaType: "image/jpeg",
+      text: "with avocado",
+      localTime: "12:30",
+    });
+  });
+
   it("uses Gemini first for structured intake parsing", async () => {
     const gemini: NutritionGenerator = { generate: vi.fn(async () => ({ items })) };
     const mistral: NutritionGenerator = { generate: vi.fn(async () => ({ items: [] })) };

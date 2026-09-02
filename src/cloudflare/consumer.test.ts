@@ -10,6 +10,63 @@ const oatmeal = {
 };
 
 describe("Cloudflare food Queue consumer", () => {
+  it("analyzes an image-only DM without persisting the Slack photo", async () => {
+    const analyzed: unknown[] = [];
+    const saved: unknown[] = [];
+
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvPhoto",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1710000000.000001",
+            files: [
+              {
+                id: "F1",
+                mimetype: "image/jpeg",
+                url_private_download: "https://files.slack.test/F1.jpg",
+              },
+            ],
+          },
+        },
+      },
+      {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
+        analyzeImage: async (input) => {
+          analyzed.push(input);
+          return [oatmeal];
+        },
+        publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
+        savePending: async (entries) => {
+          saved.push(...entries);
+        },
+      },
+    );
+
+    expect(analyzed).toEqual([
+      {
+        teamId: "T1",
+        url: "https://files.slack.test/F1.jpg",
+        mediaType: "image/jpeg",
+        text: "",
+        localTime: "08:00",
+      },
+    ]);
+    expect(saved).toEqual([expect.objectContaining({ id: "entry:EvPhoto:0", item: oatmeal })]);
+  });
+
   it("requires a Dofek link before analyzing or drafting a food message", async () => {
     const analyze = vi.fn(async () => [oatmeal]);
     const prompts: unknown[] = [];
