@@ -18,11 +18,7 @@ export type CloudflareEnv = CloudflareRuntimeEnv & {
 };
 
 const worker = {
-  async fetch(
-    request: Request,
-    env: CloudflareEnv,
-    execution: { waitUntil(promise: Promise<unknown>): void } = { waitUntil: () => undefined },
-  ): Promise<Response> {
+  async fetch(request: Request, env: CloudflareEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/health") return Response.json({ status: "ok" });
     if (request.method === "GET" && (path === "/" || path === "/slack/install")) {
@@ -43,7 +39,8 @@ const worker = {
         signingSecret: env.SLACK_SIGNING_SECRET,
         recordDelivery: (deliveryId) => store.recordDelivery(deliveryId),
         enqueue: async (job) => {
-          execution.waitUntil(processCloudflareFoodJob(job, env));
+          await env.FOOD_JOBS.send(job);
+          await store.recordQueueOutcome(job.deliveryId, "enqueued");
         },
         startLink: (identity) =>
           startDofekLink({
@@ -62,11 +59,10 @@ const worker = {
   ) {
     for (const message of batch.messages) {
       try {
+        const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
+        await store.recordQueueOutcome(message.body.deliveryId, "processing");
         const outcome = await processCloudflareFoodJob(message.body, env);
-        await new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY).recordQueueOutcome(
-          message.body.deliveryId,
-          outcome,
-        );
+        await store.recordQueueOutcome(message.body.deliveryId, outcome);
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Unknown error";
         console.error("Slack food job failed", {

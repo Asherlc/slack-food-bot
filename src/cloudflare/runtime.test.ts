@@ -336,7 +336,7 @@ describe("Slack analysis failure", () => {
       expect(JSON.parse(String(init?.body))).toEqual({
         channel: "D1",
         thread_ts: "1.0",
-        text: "I couldn't analyze that photo. Please try again. If photo analysis was just enabled, reinstall Slack Food Bot first so it can access uploaded files.",
+        text: "I couldn't analyze that message in time. Please try again. If it included a photo, make sure Slack Food Bot was reinstalled with file access.",
       });
       return Response.json({ ok: true, ts: "2.0" });
     });
@@ -356,6 +356,23 @@ describe("Slack analysis failure", () => {
     }
 
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces Slack API error codes", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ ok: false, error: "missing_scope" }));
+
+    try {
+      await expect(
+        notifySlackAnalysisFailure({
+          teamId: "T1",
+          channelId: "D1",
+          threadTs: "1.0",
+          store: { loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T },
+        }),
+      ).rejects.toThrow("Slack chat.postMessage rejected the request: missing_scope");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

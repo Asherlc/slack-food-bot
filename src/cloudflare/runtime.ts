@@ -258,7 +258,7 @@ class CloudflareSlackMessenger {
     await this.#call(input.teamId, "chat.postMessage", {
       channel: input.channelId,
       thread_ts: input.threadTs,
-      text: "I couldn't analyze that photo. Please try again. If photo analysis was just enabled, reinstall Slack Food Bot first so it can access uploaded files.",
+      text: "I couldn't analyze that message in time. Please try again. If it included a photo, make sure Slack Food Bot was reinstalled with file access.",
     });
   }
 
@@ -344,8 +344,11 @@ class CloudflareSlackMessenger {
       body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`Slack ${method} failed with status ${response.status}`);
-    const result = (await response.json()) as { ok?: unknown } & T;
-    if (result.ok !== true) throw new Error(`Slack ${method} rejected the request`);
+    const result = (await response.json()) as { ok?: unknown; error?: unknown } & T;
+    if (result.ok !== true) {
+      const code = typeof result.error === "string" ? `: ${result.error}` : "";
+      throw new Error(`Slack ${method} rejected the request${code}`);
+    }
     return result;
   }
 }

@@ -17,6 +17,7 @@ export type CloudflarePendingEntry = PendingRecord & {
 };
 
 type ConsumerDependencies = Partial<{
+  analysisTimeoutMs: number;
   analyze(text: string, localTime: string): Promise<NutritionItem[]>;
   analyzeImage(input: {
     teamId: string;
@@ -165,20 +166,20 @@ async function processEvent(
   const localTime = time.toISOString().slice(11, 16);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
   let items: NutritionItem[];
-  if (photo) {
-    try {
-      items = await analyzeImage(dependencies, { teamId, ...photo, text: description, localTime });
-    } catch (error) {
-      if (!dependencies.publishAnalysisFailure) throw error;
-      console.error("Slack photo analysis failed", {
-        deliveryId: job.deliveryId,
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-      await dependencies.publishAnalysisFailure({ teamId, channelId, threadTs });
-      return "photo-analysis-failed";
-    }
-  } else {
-    items = await analyzeText(dependencies, description, localTime);
+  try {
+    const analysis = photo
+      ? analyzeImage(dependencies, { teamId, ...photo, text: description, localTime })
+      : analyzeText(dependencies, description, localTime);
+    items = await withTimeout(analysis, dependencies.analysisTimeoutMs ?? 25_000);
+  } catch (error) {
+    if (!dependencies.publishAnalysisFailure) throw error;
+    console.error("Slack analysis failed", {
+      deliveryId: job.deliveryId,
+      kind: photo ? "image" : "text",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    await dependencies.publishAnalysisFailure({ teamId, channelId, threadTs });
+    return "analysis-failed";
   }
   const draft = await dependencies.publishDraft({ teamId, channelId, threadTs, items });
   await dependencies.savePending(
@@ -195,6 +196,23 @@ async function processEvent(
     })),
   );
   return "draft-published";
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Nutrition analysis timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function analyzeText(

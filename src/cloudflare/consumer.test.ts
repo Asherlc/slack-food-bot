@@ -118,12 +118,62 @@ describe("Cloudflare food Queue consumer", () => {
             },
           },
         ),
-      ).resolves.toBe("photo-analysis-failed");
+      ).resolves.toBe("analysis-failed");
 
-      expect(errorLog).toHaveBeenCalledWith("Slack photo analysis failed", {
+      expect(errorLog).toHaveBeenCalledWith("Slack analysis failed", {
         deliveryId: "EvPhotoFailure",
+        kind: "image",
         error: "Slack image download failed with status 403",
       });
+    } finally {
+      errorLog.mockRestore();
+    }
+
+    expect(failures).toEqual([{ teamId: "T1", channelId: "D1", threadTs: "1710000000.000001" }]);
+  });
+
+  it("tells the user when text analysis times out", async () => {
+    const failures: unknown[] = [];
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        processFoodQueueJob(
+          {
+            kind: "event",
+            deliveryId: "EvTextTimeout",
+            payload: {
+              team_id: "T1",
+              event: {
+                type: "message",
+                channel_type: "im",
+                user: "U1",
+                channel: "D1",
+                ts: "1710000000.000001",
+                text: "oatmeal",
+              },
+            },
+          },
+          {
+            loadGrant: async () => ({
+              externalSubject: "T1:U1",
+              grantId: "grant-1",
+              accessToken: "token",
+              expiresInSeconds: 900,
+            }),
+            publishLinkRequired: async () => undefined,
+            analysisTimeoutMs: 1,
+            analyze: async () => new Promise(() => undefined),
+            publishAnalysisFailure: async (input) => {
+              failures.push(input);
+            },
+            publishDraft: async () => {
+              throw new Error("must not publish a draft");
+            },
+            savePending: async () => undefined,
+          },
+        ),
+      ).resolves.toBe("analysis-failed");
     } finally {
       errorLog.mockRestore();
     }
