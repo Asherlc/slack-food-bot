@@ -119,12 +119,7 @@ describe("NutritionAnalyzer", () => {
 
   it("uses the Workers AI vision model for a meal photo without a Gemini key", async () => {
     const workersAi = {
-      run: vi
-        .fn()
-        .mockResolvedValueOnce({ answer: "FOOD" })
-        .mockResolvedValueOnce({
-          answer: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\``,
-        }),
+      run: vi.fn(async () => ({ response: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\`` })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -134,27 +129,28 @@ describe("NutritionAnalyzer", () => {
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
     ).resolves.toEqual(items);
 
-    expect(workersAi.run).toHaveBeenNthCalledWith(1, "@cf/moondream/moondream3.1-9B-A2B", {
-      task: "query",
-      image: "data:image/jpeg;base64,/9j/",
-      question: expect.stringContaining("Reply with exactly FOOD or NOT_FOOD"),
-      reasoning: false,
-      stream: false,
-      max_tokens: 16,
-    });
-    expect(workersAi.run).toHaveBeenNthCalledWith(2, "@cf/moondream/moondream3.1-9B-A2B", {
-      task: "query",
-      image: "data:image/jpeg;base64,/9j/",
-      question: expect.stringContaining("lunch"),
-      reasoning: false,
-      stream: false,
+    expect(workersAi.run).toHaveBeenCalledWith("@cf/meta/llama-4-scout-17b-16e-instruct", {
+      messages: [
+        {
+          role: "user",
+          content: [
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining('return {"items":[]}'),
+            }),
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
       max_tokens: 1024,
     });
   });
 
   it("rejects a photo that the vision model does not recognize as food", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({ answer: "NOT_FOOD" })),
+      run: vi.fn(async () => ({ response: { items: [] } })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
