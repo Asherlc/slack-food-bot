@@ -119,6 +119,101 @@ describe("Cloudflare food Queue consumer", () => {
     ]);
   });
 
+  it("defers a filename-only upload placeholder instead of analyzing it as food", async () => {
+    const analyzeText = vi.fn(async () => [oatmeal]);
+
+    await expect(
+      processFoodQueueJob(
+        {
+          kind: "event",
+          deliveryId: "EvUploadPlaceholder",
+          payload: {
+            team_id: "T1",
+            event: {
+              type: "message",
+              channel_type: "im",
+              user: "U1",
+              channel: "D1",
+              ts: "1710000000.000001",
+              text: "toilet.jpg",
+            },
+          },
+        },
+        {
+          loadGrant: async () => ({
+            externalSubject: "T1:U1",
+            grantId: "grant-1",
+            accessToken: "token",
+            expiresInSeconds: 900,
+          }),
+          publishLinkRequired: async () => undefined,
+          analyze: analyzeText,
+          publishDraft: async () => {
+            throw new Error("must not publish a draft");
+          },
+          savePending: async () => undefined,
+        },
+      ),
+    ).resolves.toBe("image-pending");
+    expect(analyzeText).not.toHaveBeenCalled();
+  });
+
+  it("analyzes the completed image nested in Slack's message_changed event", async () => {
+    const analyzed: unknown[] = [];
+
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvCompletedUpload",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel_type: "im",
+            channel: "D1",
+            message: {
+              type: "message",
+              user: "U1",
+              text: "toilet.jpg",
+              ts: "1710000000.000001",
+              files: [
+                {
+                  id: "F1",
+                  mimetype: "image/jpeg",
+                  url_private_download: "https://files.slack.test/F1.jpg",
+                },
+              ],
+            },
+          },
+        },
+      },
+      {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
+        analyzeImage: async (input) => {
+          analyzed.push(input);
+          return [oatmeal];
+        },
+        publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
+        savePending: async () => undefined,
+      },
+    );
+
+    expect(analyzed).toEqual([
+      expect.objectContaining({
+        teamId: "T1",
+        url: "https://files.slack.test/F1.jpg",
+        mediaType: "image/jpeg",
+      }),
+    ]);
+  });
+
   it("tells the user when photo analysis fails instead of going silent", async () => {
     const failures: unknown[] = [];
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);

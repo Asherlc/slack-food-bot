@@ -116,12 +116,19 @@ async function processEvent(
     !dependencies.publishLinkRequired
   )
     throw new Error("Cloudflare analysis workflow is not configured");
-  const event = objectField(job.payload, "event");
-  if (!event || stringField(event, "bot_id")) return "ignored:missing-or-bot";
-  const subtype = stringField(event, "subtype");
-  if (subtype && subtype !== "file_share") return `ignored:subtype:${subtype}`;
+  const eventEnvelope = objectField(job.payload, "event");
+  if (!eventEnvelope) return "ignored:missing-or-bot";
+  const subtype = stringField(eventEnvelope, "subtype");
+  const changedMessage =
+    subtype === "message_changed" ? objectField(eventEnvelope, "message") : undefined;
+  const event = changedMessage ?? eventEnvelope;
+  if (stringField(event, "bot_id")) return "ignored:missing-or-bot";
+  if (subtype === "message_changed" && !imageFile(event)) return "ignored:subtype:message_changed";
+  if (subtype && subtype !== "file_share" && subtype !== "message_changed")
+    return `ignored:subtype:${subtype}`;
   const type = stringField(event, "type");
-  const channelType = stringField(event, "channel_type");
+  const channelType =
+    stringField(event, "channel_type") ?? stringField(eventEnvelope, "channel_type");
   if (
     type !== "app_mention" &&
     (type !== "message" || (channelType !== "im" && channelType !== "app_home"))
@@ -130,13 +137,14 @@ async function processEvent(
   }
   const teamId = stringField(job.payload, "team_id");
   const userId = stringField(event, "user");
-  const channelId = stringField(event, "channel");
+  const channelId = stringField(event, "channel") ?? stringField(eventEnvelope, "channel");
   const sourceMessageTs = stringField(event, "ts");
   const rawText = stringField(event, "text") ?? "";
   if (!teamId || !userId || !channelId || !sourceMessageTs) return "ignored:missing-identifiers";
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   const photo = imageFile(event);
   if (!text && !photo) return "ignored:empty";
+  if (!photo && isImageFilename(text)) return "image-pending";
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
   if (!(await dependencies.loadGrant(`${teamId}:${userId}`))) {
     await dependencies.publishLinkRequired({ teamId, channelId, threadTs });
@@ -279,6 +287,10 @@ function imageFile(
 function needsIngredientClarification(text: string): boolean {
   const words = text.replace(/^\s*\d+(?:\.\d+)?\s*(?:x\s*)?/i, "").match(/[a-z]+/gi);
   return words?.length === 2 && !/\b(?:with|without|no|and|or|plus|on)\b/i.test(text);
+}
+
+function isImageFilename(text: string): boolean {
+  return /(?:^|\s)[^\s]+\.(?:avif|gif|heic|heif|jpe?g|png|webp)$/i.test(text.trim());
 }
 
 async function processAction(
