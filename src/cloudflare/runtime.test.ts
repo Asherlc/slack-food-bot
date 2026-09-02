@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   analyzeSlackImage,
+  createCloudflareNutritionAnalyzer,
   notifySlackAnalysisFailure,
   notifySlackLinkCompleted,
   publishInteractiveMessageUpdate,
-  resolveAiCredentials,
 } from "./runtime.js";
 
 const items = [
@@ -17,11 +17,25 @@ const items = [
   },
 ];
 
-describe("Cloudflare AI credentials", () => {
-  it("uses the legacy generic key for a configured Gemini provider", () => {
-    expect(resolveAiCredentials({ AI_PROVIDER: "gemini", AI_API_KEY: "key" })).toEqual({
-      geminiApiKey: "key",
-    });
+describe("Cloudflare AI backend", () => {
+  it("uses only the native Workers AI binding", async () => {
+    const generate = vi.fn(async () => ({
+      response: JSON.stringify({
+        items: [
+          {
+            foodName: "Oatmeal",
+            foodDescription: "One bowl",
+            category: "breads_and_cereals",
+            meal: "breakfast",
+            nutrients: { calories: 320 },
+          },
+        ],
+      }),
+    }));
+    const analyzer = createCloudflareNutritionAnalyzer({ AI: { run: generate } });
+
+    await expect(analyzer.analyze("oatmeal", "08:00")).resolves.toEqual(items);
+    expect(generate).toHaveBeenCalledOnce();
   });
 });
 
