@@ -21,8 +21,9 @@ type ConsumerDependencies = Partial<{
   analyze(text: string, localTime: string): Promise<NutritionItem[]>;
   analyzeImage(input: {
     teamId: string;
-    url: string;
-    mediaType: string;
+    fileId?: string;
+    url?: string;
+    mediaType?: string;
     text: string;
     localTime: string;
   }): Promise<NutritionItem[]>;
@@ -238,22 +239,39 @@ async function analyzeText(
 
 async function analyzeImage(
   dependencies: ConsumerDependencies,
-  input: { teamId: string; url: string; mediaType: string; text: string; localTime: string },
+  input: {
+    teamId: string;
+    fileId?: string;
+    url?: string;
+    mediaType?: string;
+    text: string;
+    localTime: string;
+  },
 ): Promise<NutritionItem[]> {
   if (!dependencies.analyzeImage) throw new Error("Cloudflare image analysis is not configured");
   return dependencies.analyzeImage(input);
 }
 
-function imageFile(event: Record<string, unknown>): { url: string; mediaType: string } | undefined {
+function imageFile(
+  event: Record<string, unknown>,
+): { fileId?: string; url?: string; mediaType?: string } | undefined {
   const files = event.files;
   if (!Array.isArray(files)) return undefined;
   for (const file of files) {
     if (!file || typeof file !== "object" || Array.isArray(file)) continue;
     const candidate = file as Record<string, unknown>;
+    const fileId = stringField(candidate, "id");
     const mediaType = stringField(candidate, "mimetype");
     const url =
       stringField(candidate, "url_private_download") ?? stringField(candidate, "url_private");
-    if (mediaType?.startsWith("image/") && url) return { mediaType, url };
+    if (mediaType?.startsWith("image/") && url)
+      return { ...(fileId ? { fileId } : {}), mediaType, url };
+    if (
+      fileId &&
+      (mediaType?.startsWith("image/") ||
+        stringField(candidate, "file_access") === "check_file_info")
+    )
+      return { fileId, ...(mediaType ? { mediaType } : {}) };
   }
   return undefined;
 }

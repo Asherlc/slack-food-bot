@@ -68,6 +68,57 @@ describe("Cloudflare food Queue consumer", () => {
     expect(saved).toEqual([expect.objectContaining({ id: "entry:EvPhoto:0", item: oatmeal })]);
   });
 
+  it("routes an image with pending Slack metadata by file id instead of analyzing its text", async () => {
+    const analyzed: unknown[] = [];
+    const analyzeText = vi.fn(async () => [oatmeal]);
+
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvPendingPhoto",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1710000000.000001",
+            text: "toilet.jpg",
+            files: [
+              {
+                id: "F1",
+                mode: "file_access",
+                file_access: "check_file_info",
+              },
+            ],
+          },
+        },
+      },
+      {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
+        analyze: analyzeText,
+        analyzeImage: async (input) => {
+          analyzed.push(input);
+          return [oatmeal];
+        },
+        publishDraft: async () => ({ confirmationMessageTs: "1710000001.000001" }),
+        savePending: async () => undefined,
+      },
+    );
+
+    expect(analyzeText).not.toHaveBeenCalled();
+    expect(analyzed).toEqual([
+      expect.objectContaining({ teamId: "T1", fileId: "F1", text: "toilet.jpg" }),
+    ]);
+  });
+
   it("tells the user when photo analysis fails instead of going silent", async () => {
     const failures: unknown[] = [];
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
