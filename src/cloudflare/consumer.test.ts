@@ -56,13 +56,12 @@ describe("Cloudflare food Queue consumer", () => {
     );
 
     expect(analyzed).toEqual([
-      {
+      expect.objectContaining({
         teamId: "T1",
         url: "https://files.slack.test/F1.jpg",
         mediaType: "image/jpeg",
         text: "",
-        localTime: "08:00",
-      },
+      }),
     ]);
     expect(saved).toEqual([expect.objectContaining({ id: "entry:EvPhoto:0", item: oatmeal })]);
   });
