@@ -200,6 +200,32 @@ describe("NutritionAnalyzer", () => {
     expect(workersAi.run).toHaveBeenCalledTimes(1);
   });
 
+  it("logs the vision gate decision and bounded visible description", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({
+        response: { isFood: false, visibleContents: `toilet ${"x".repeat(300)}` },
+      })),
+    };
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    try {
+      await expect(
+        analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
+      ).rejects.toBeInstanceOf(NoFoodDetectedError);
+      expect(info).toHaveBeenCalledWith("Workers AI image gate", {
+        model: "@cf/meta/llama-4-scout-17b-16e-instruct",
+        valid: true,
+        isFood: false,
+        visibleContents: `toilet ${"x".repeat(193)}`,
+      });
+    } finally {
+      info.mockRestore();
+    }
+  });
+
   it("parses the JSON content from a Workers AI chat completion", async () => {
     const workersAi = {
       run: vi.fn(async () => ({
