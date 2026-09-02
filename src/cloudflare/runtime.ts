@@ -101,6 +101,7 @@ export async function analyzeSlackImage(input: {
   if (Number.isFinite(declaredLength) && declaredLength > maxSlackImageBytes)
     throw new Error("Slack image download exceeds 5 MiB");
   const image = await readImageBytes(response);
+  if (image.byteLength === 0) throw new Error("Slack image download was empty");
   return input.analyze(image, responseMediaType, input.text, input.localTime);
 }
 
