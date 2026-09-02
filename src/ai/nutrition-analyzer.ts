@@ -123,16 +123,35 @@ export function createProductionNutritionAnalyzer(input: {
 function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator {
   return {
     async generate(input) {
-      if (input.kind === "analyze-image")
-        throw new Error("Workers AI image analysis is not configured");
+      const content =
+        input.kind === "analyze-image"
+          ? [
+              { type: "text", text: workerPromptFor(input) },
+              {
+                type: "image_url",
+                image_url: { url: imageDataUrl(input.image, input.mediaType) },
+              },
+            ]
+          : (promptFor(input) as string);
       const result = await binding.run(workersAiModel, {
-        messages: [{ role: "user", content: promptFor(input) as string }],
+        messages: [{ role: "user", content }],
       });
       const response = result.response ?? result.choices?.[0]?.message?.content;
       const parsedResponse = typeof response === "string" ? JSON.parse(response) : response;
       return normalizeWorkersAiOutput(parsedResponse);
     },
   };
+}
+
+function imageDataUrl(image: Uint8Array, mediaType: string): string {
+  let binary = "";
+  for (const byte of image) binary += String.fromCharCode(byte);
+  return `data:${mediaType};base64,${btoa(binary)}`;
+}
+
+function workerPromptFor(input: NutritionGeneration): string {
+  if (input.kind !== "analyze-image") return promptFor(input) as string;
+  return `${nutritionInstruction()}\nLocal time: ${input.localTime}\nOptional photo caption: ${input.text || "(none)"}`;
 }
 
 function normalizeWorkersAiOutput(value: unknown): unknown {
@@ -183,8 +202,7 @@ function createAiSdkGenerator(
 }
 
 function promptFor(input: NutritionGeneration): string | UserContent {
-  const instruction =
-    'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
+  const instruction = nutritionInstruction();
   if (input.kind === "analyze") {
     return `${instruction}\nLocal time: ${input.localTime}\nFood description: ${input.text}`;
   }
@@ -198,6 +216,10 @@ function promptFor(input: NutritionGeneration): string | UserContent {
     ];
   }
   return `${instruction}\nLocal time: ${input.localTime}\nExisting items: ${JSON.stringify(input.items)}\nRefinement: ${input.instruction}`;
+}
+
+function nutritionInstruction(): string {
+  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
 }
 
 function isRateLimited(error: unknown): boolean {
