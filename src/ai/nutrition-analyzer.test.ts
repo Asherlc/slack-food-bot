@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createProductionNutritionAnalyzer,
+  NoFoodDetectedError,
   NutritionAnalyzer,
   type NutritionGenerator,
 } from "./nutrition-analyzer.js";
@@ -118,7 +119,12 @@ describe("NutritionAnalyzer", () => {
 
   it("uses the Workers AI vision model for a meal photo without a Gemini key", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({ answer: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\`` })),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ answer: "FOOD" })
+        .mockResolvedValueOnce({
+          answer: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\``,
+        }),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -128,7 +134,15 @@ describe("NutritionAnalyzer", () => {
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
     ).resolves.toEqual(items);
 
-    expect(workersAi.run).toHaveBeenCalledWith("@cf/moondream/moondream3.1-9B-A2B", {
+    expect(workersAi.run).toHaveBeenNthCalledWith(1, "@cf/moondream/moondream3.1-9B-A2B", {
+      task: "query",
+      image: "data:image/jpeg;base64,/9j/",
+      question: expect.stringContaining("Reply with exactly FOOD or NOT_FOOD"),
+      reasoning: false,
+      stream: false,
+      max_tokens: 16,
+    });
+    expect(workersAi.run).toHaveBeenNthCalledWith(2, "@cf/moondream/moondream3.1-9B-A2B", {
       task: "query",
       image: "data:image/jpeg;base64,/9j/",
       question: expect.stringContaining("lunch"),
@@ -136,6 +150,20 @@ describe("NutritionAnalyzer", () => {
       stream: false,
       max_tokens: 1024,
     });
+  });
+
+  it("rejects a photo that the vision model does not recognize as food", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({ answer: "NOT_FOOD" })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
+    ).rejects.toBeInstanceOf(NoFoodDetectedError);
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
   });
 
   it("parses the JSON content from a Workers AI chat completion", async () => {

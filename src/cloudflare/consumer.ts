@@ -60,6 +60,7 @@ type ConsumerDependencies = Partial<{
     teamId: string;
     channelId: string;
     threadTs: string;
+    reason: "timeout" | "no-food" | "error";
   }): Promise<void>;
   savePending(entries: ReadonlyArray<CloudflarePendingEntry>): Promise<void>;
   findPending(channelId: string, confirmationMessageTs: string): Promise<CloudflarePendingEntry[]>;
@@ -178,7 +179,12 @@ async function processEvent(
       kind: photo ? "image" : "text",
       error: error instanceof Error ? error.message : "Unknown error",
     });
-    await dependencies.publishAnalysisFailure({ teamId, channelId, threadTs });
+    await dependencies.publishAnalysisFailure({
+      teamId,
+      channelId,
+      threadTs,
+      reason: analysisFailureReason(error),
+    });
     return "analysis-failed";
   }
   const draft = await dependencies.publishDraft({ teamId, channelId, threadTs, items });
@@ -196,6 +202,12 @@ async function processEvent(
     })),
   );
   return "draft-published";
+}
+
+function analysisFailureReason(error: unknown): "timeout" | "no-food" | "error" {
+  if (error instanceof Error && error.name === "NoFoodDetectedError") return "no-food";
+  if (error instanceof Error && /timed out/i.test(error.message)) return "timeout";
+  return "error";
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

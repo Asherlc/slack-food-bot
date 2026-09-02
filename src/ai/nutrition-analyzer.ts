@@ -99,6 +99,13 @@ export type NutritionGenerator = {
   generate(input: NutritionGeneration): Promise<unknown>;
 };
 
+export class NoFoodDetectedError extends Error {
+  constructor() {
+    super("No food or beverage was confidently detected in the image");
+    this.name = "NoFoodDetectedError";
+  }
+}
+
 export type WorkersAiBinding = {
   run(
     model: string,
@@ -197,14 +204,7 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
     async generate(input) {
       const result =
         input.kind === "analyze-image"
-          ? await binding.run(workersAiVisionModel, {
-              task: "query",
-              image: imageDataUrl(input.image, input.mediaType),
-              question: workerPromptFor(input),
-              reasoning: false,
-              stream: false,
-              max_tokens: 1024,
-            })
+          ? await analyzeWorkersAiImage(binding, input)
           : await binding.run(workersAiTextModel, {
               messages: [{ role: "user", content: promptFor(input) as string }],
               response_format: { type: "json_object" },
@@ -216,6 +216,36 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
       return normalizeWorkersAiOutput(parsedResponse);
     },
   };
+}
+
+async function analyzeWorkersAiImage(
+  binding: WorkersAiBinding,
+  input: Extract<NutritionGeneration, { kind: "analyze-image" }>,
+): Promise<Awaited<ReturnType<WorkersAiBinding["run"]>>> {
+  const image = imageDataUrl(input.image, input.mediaType);
+  const classification = await binding.run(workersAiVisionModel, {
+    task: "query",
+    image,
+    question:
+      "Does this image clearly show edible food or a beverage intended for human consumption? Toilets, waste, bodily substances, packaging without visible food, household objects, and ambiguous scenes are NOT_FOOD. Reply with exactly FOOD or NOT_FOOD.",
+    reasoning: false,
+    stream: false,
+    max_tokens: 16,
+  });
+  const classificationText =
+    classification.answer ??
+    classification.response ??
+    classification.choices?.[0]?.message?.content;
+  if (typeof classificationText !== "string" || classificationText.trim().toUpperCase() !== "FOOD")
+    throw new NoFoodDetectedError();
+  return binding.run(workersAiVisionModel, {
+    task: "query",
+    image,
+    question: workerPromptFor(input),
+    reasoning: false,
+    stream: false,
+    max_tokens: 1024,
+  });
 }
 
 function parseWorkersAiResponse(response: unknown): unknown {

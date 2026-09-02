@@ -129,7 +129,14 @@ describe("Cloudflare food Queue consumer", () => {
       errorLog.mockRestore();
     }
 
-    expect(failures).toEqual([{ teamId: "T1", channelId: "D1", threadTs: "1710000000.000001" }]);
+    expect(failures).toEqual([
+      {
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1710000000.000001",
+        reason: "error",
+      },
+    ]);
   });
 
   it("tells the user when text analysis times out", async () => {
@@ -178,7 +185,79 @@ describe("Cloudflare food Queue consumer", () => {
       errorLog.mockRestore();
     }
 
-    expect(failures).toEqual([{ teamId: "T1", channelId: "D1", threadTs: "1710000000.000001" }]);
+    expect(failures).toEqual([
+      {
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1710000000.000001",
+        reason: "timeout",
+      },
+    ]);
+  });
+
+  it("tells the user when a photo does not clearly contain food", async () => {
+    const failures: unknown[] = [];
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        processFoodQueueJob(
+          {
+            kind: "event",
+            deliveryId: "EvNotFood",
+            payload: {
+              team_id: "T1",
+              event: {
+                type: "message",
+                subtype: "file_share",
+                channel_type: "im",
+                user: "U1",
+                channel: "D1",
+                ts: "1710000000.000001",
+                files: [
+                  {
+                    mimetype: "image/jpeg",
+                    url_private_download: "https://files.slack.com/not-food.jpg",
+                  },
+                ],
+              },
+            },
+          },
+          {
+            loadGrant: async () => ({
+              externalSubject: "T1:U1",
+              grantId: "grant-1",
+              accessToken: "token",
+              expiresInSeconds: 900,
+            }),
+            publishLinkRequired: async () => undefined,
+            analyzeImage: async () => {
+              const error = new Error("No food or beverage was confidently detected in the image");
+              error.name = "NoFoodDetectedError";
+              throw error;
+            },
+            publishAnalysisFailure: async (input) => {
+              failures.push(input);
+            },
+            publishDraft: async () => {
+              throw new Error("must not publish a draft");
+            },
+            savePending: async () => undefined,
+          },
+        ),
+      ).resolves.toBe("analysis-failed");
+    } finally {
+      errorLog.mockRestore();
+    }
+
+    expect(failures).toEqual([
+      {
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1710000000.000001",
+        reason: "no-food",
+      },
+    ]);
   });
 
   it("requires a Dofek link before analyzing or drafting a food message", async () => {
