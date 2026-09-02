@@ -15,6 +15,8 @@ import { processFoodQueueJob } from "./consumer.js";
 import type { SlackQueueJob } from "./slack.js";
 import { CloudflareStore, type D1DatabaseLike } from "./store.js";
 
+const maxSlackImageBytes = 10 * 1024 * 1024;
+
 export type CloudflareRuntimeEnv = {
   BOT_STATE_ENCRYPTION_KEY: string;
   FOOD_BOT_DB: D1DatabaseLike;
@@ -45,11 +47,22 @@ export async function processCloudflareFoodJob(
   const messenger = new CloudflareSlackMessenger(store);
   await processFoodQueueJob(job, {
     analyze: (text, localTime) => analyzer.analyze(text, localTime),
+    analyzeImage: async (input) => {
+      const installation = await store.loadInstallation<SlackInstallation>(input.teamId);
+      if (!installation?.botToken) throw new Error("Slack app is not installed for this workspace");
+      return analyzeSlackImage({
+        ...input,
+        botToken: installation.botToken,
+        analyze: (image, mediaType, text, localTime) =>
+          analyzer.analyzeImage(image, mediaType, text, localTime),
+      });
+    },
     saveClarification: (input) => store.saveClarification(input),
     consumeClarification: (input) => store.consumeClarification(input),
     publishDraft: (input) => messenger.publishDraft(input),
     publishClarification: (input) => messenger.publishClarification(input),
     publishLinkRequired: (input) => messenger.publishLinkRequired(input),
+    publishAnalysisFailure: (input) => messenger.publishAnalysisFailure(input),
     savePending: (entries) => store.savePending(entries, 86_400),
     findPending: (channelId, messageTs) => store.findPending(channelId, messageTs),
     deletePending: (ids) => store.deletePending(ids),
@@ -61,6 +74,82 @@ export async function processCloudflareFoodJob(
     publishConfirmed: (input) => messenger.publishConfirmed(input),
     publishConfirmationFailure: (input) => messenger.publishConfirmationFailure(input),
   });
+}
+
+export async function analyzeSlackImage(input: {
+  url: string;
+  mediaType: string;
+  text: string;
+  localTime: string;
+  botToken: string;
+  analyze(
+    image: Uint8Array,
+    mediaType: string,
+    text: string,
+    localTime: string,
+  ): Promise<NutritionItem[]>;
+}): Promise<NutritionItem[]> {
+  const url = trustedSlackImageUrl(input.url);
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${input.botToken}` },
+  });
+  if (!response.ok) throw new Error(`Slack image download failed with status ${response.status}`);
+  const responseMediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
+  if (
+    responseMediaType &&
+    !responseMediaType.startsWith("image/") &&
+    responseMediaType !== "application/octet-stream"
+  ) {
+    throw new Error(`Slack image download returned a non-image response: ${responseMediaType}`);
+  }
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxSlackImageBytes)
+    throw new Error("Slack image is too large to analyze");
+  const image = await readImageBytes(response);
+  return input.analyze(image, input.mediaType, input.text, input.localTime);
+}
+
+function trustedSlackImageUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Invalid Slack image URL");
+  }
+  if (
+    url.protocol !== "https:" ||
+    (url.hostname !== "files.slack.com" && url.hostname !== "slack.com")
+  )
+    throw new Error("Invalid Slack image URL");
+  return url;
+}
+
+async function readImageBytes(response: Response): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > maxSlackImageBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Slack image is too large to analyze");
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const image = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    image.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return image;
 }
 
 export function resolveAiCredentials(
@@ -106,6 +195,15 @@ export async function notifySlackLinkCompleted(input: {
   store: SlackInstallationStore;
 }): Promise<void> {
   await new CloudflareSlackMessenger(input.store).publishLinkCompleted(input);
+}
+
+export async function notifySlackAnalysisFailure(input: {
+  teamId: string;
+  channelId: string;
+  threadTs: string;
+  store: SlackInstallationStore;
+}): Promise<void> {
+  await new CloudflareSlackMessenger(input.store).publishAnalysisFailure(input);
 }
 
 class CloudflareSlackMessenger {
@@ -154,6 +252,18 @@ class CloudflareSlackMessenger {
       channel: input.channelId,
       thread_ts: input.threadTs,
       text: "Before I can log food, link your Dofek account with `/link-dofek`.",
+    });
+  }
+
+  async publishAnalysisFailure(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.postMessage", {
+      channel: input.channelId,
+      thread_ts: input.threadTs,
+      text: "I couldn't analyze that photo. Please try again. If photo analysis was just enabled, reinstall Slack Food Bot first so it can access uploaded files.",
     });
   }
 
