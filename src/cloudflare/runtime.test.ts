@@ -347,6 +347,35 @@ describe("Slack analysis failure", () => {
         teamId: "T1",
         channelId: "D1",
         threadTs: "1.0",
+        reason: "timeout",
+        store: {
+          loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains when a photo does not clearly contain food", async () => {
+    const fetch = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({
+        channel: "D1",
+        thread_ts: "1.0",
+        text: "I couldn't confidently identify food or a drink in that photo, so I didn't create a draft.",
+      });
+      return Response.json({ ok: true, ts: "2.0" });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await notifySlackAnalysisFailure({
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1.0",
+        reason: "no-food",
         store: {
           loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
         },
@@ -367,6 +396,7 @@ describe("Slack analysis failure", () => {
           teamId: "T1",
           channelId: "D1",
           threadTs: "1.0",
+          reason: "error",
           store: { loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T },
         }),
       ).rejects.toThrow("Slack chat.postMessage rejected the request: missing_scope");

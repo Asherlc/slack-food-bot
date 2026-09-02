@@ -196,6 +196,7 @@ export async function notifySlackAnalysisFailure(input: {
   teamId: string;
   channelId: string;
   threadTs: string;
+  reason: "timeout" | "no-food" | "error";
   store: SlackInstallationStore;
 }): Promise<void> {
   await new CloudflareSlackMessenger(input.store).publishAnalysisFailure(input);
@@ -254,11 +255,17 @@ class CloudflareSlackMessenger {
     teamId: string;
     channelId: string;
     threadTs: string;
+    reason: "timeout" | "no-food" | "error";
   }): Promise<void> {
     await this.#call(input.teamId, "chat.postMessage", {
       channel: input.channelId,
       thread_ts: input.threadTs,
-      text: "I couldn't analyze that message in time. Please try again. If it included a photo, make sure Slack Food Bot was reinstalled with file access.",
+      text:
+        input.reason === "no-food"
+          ? "I couldn't confidently identify food or a drink in that photo, so I didn't create a draft."
+          : input.reason === "timeout"
+            ? "I couldn't analyze that message in time. Please try again. If it included a photo, make sure Slack Food Bot was reinstalled with file access."
+            : "I couldn't analyze that message. Please try again.",
     });
   }
 
