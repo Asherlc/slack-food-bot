@@ -15,6 +15,8 @@ import { processFoodQueueJob } from "./consumer.js";
 import type { SlackQueueJob } from "./slack.js";
 import { CloudflareStore, type D1DatabaseLike } from "./store.js";
 
+const maxSlackImageBytes = 5 * 1024 * 1024;
+
 export type CloudflareRuntimeEnv = {
   BOT_STATE_ENCRYPTION_KEY: string;
   FOOD_BOT_DB: D1DatabaseLike;
@@ -90,8 +92,38 @@ export async function analyzeSlackImage(input: {
     headers: { Authorization: `Bearer ${input.botToken}` },
   });
   if (!response.ok) throw new Error(`Slack image download failed with status ${response.status}`);
-  const image = new Uint8Array(await response.arrayBuffer());
-  return input.analyze(image, input.mediaType, input.text, input.localTime);
+  const responseMediaType = response.headers.get("content-type")?.split(";", 1)[0];
+  if (!responseMediaType?.startsWith("image/"))
+    throw new Error("Slack image download did not return an image");
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxSlackImageBytes)
+    throw new Error("Slack image download exceeds 5 MiB");
+  const image = await readSlackImage(response);
+  return input.analyze(image, responseMediaType, input.text, input.localTime);
+}
+
+async function readSlackImage(response: Response): Promise<Uint8Array> {
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > maxSlackImageBytes) {
+      await reader.cancel();
+      throw new Error("Slack image download exceeds 5 MiB");
+    }
+    chunks.push(value);
+  }
+  const image = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    image.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return image;
 }
 
 export function resolveAiCredentials(

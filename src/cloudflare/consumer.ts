@@ -106,7 +106,8 @@ async function processEvent(
   )
     throw new Error("Cloudflare analysis workflow is not configured");
   const event = objectField(job.payload, "event");
-  if (!event || stringField(event, "subtype") || stringField(event, "bot_id")) return;
+  const subtype = event ? stringField(event, "subtype") : undefined;
+  if (!event || (subtype && subtype !== "file_share") || stringField(event, "bot_id")) return;
   const type = stringField(event, "type");
   const channelType = stringField(event, "channel_type");
   if (
@@ -151,7 +152,8 @@ async function processEvent(
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
   if (Number.isNaN(time.valueOf())) return;
-  const localTime = time.toTimeString().slice(0, 5);
+  // Slack event payloads do not include the sender's timezone, so analysis uses UTC consistently.
+  const localTime = time.toISOString().slice(11, 16);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
   const items = photo
     ? await analyzeImage(dependencies, { teamId, ...photo, text: description, localTime })

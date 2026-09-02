@@ -22,6 +22,7 @@ describe("Cloudflare food Queue consumer", () => {
           team_id: "T1",
           event: {
             type: "message",
+            subtype: "file_share",
             channel_type: "im",
             user: "U1",
             channel: "D1",
@@ -61,6 +62,7 @@ describe("Cloudflare food Queue consumer", () => {
         url: "https://files.slack.test/F1.jpg",
         mediaType: "image/jpeg",
         text: "",
+        localTime: "16:00",
       }),
     ]);
     expect(saved).toEqual([expect.objectContaining({ id: "entry:EvPhoto:0", item: oatmeal })]);
