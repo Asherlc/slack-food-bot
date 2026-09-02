@@ -5,6 +5,7 @@ import {
   notifySlackAnalysisFailure,
   notifySlackLinkCompleted,
   publishInteractiveMessageUpdate,
+  traceWorkersAiBinding,
 } from "./runtime.js";
 
 const items = [
@@ -36,6 +37,40 @@ describe("Cloudflare AI backend", () => {
 
     await expect(analyzer.analyze("oatmeal", "08:00")).resolves.toEqual(items);
     expect(generate).toHaveBeenCalledOnce();
+  });
+
+  it("records image presence and raw AI responses without storing image data", async () => {
+    const traces: Array<{ sequence: number; outcome: string }> = [];
+    const binding = traceWorkersAiBinding(
+      {
+        run: async () => ({
+          response: '{"isFood":true,"visibleContents":"a white toilet"}',
+        }),
+      },
+      async (sequence, outcome) => traces.push({ sequence, outcome }),
+    );
+
+    await binding.run("vision-model", {
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "classify" },
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64,secret" } },
+          ],
+        },
+      ],
+    });
+
+    expect(traces).toEqual([
+      { sequence: 1, outcome: "ai-request:model=vision-model;hasImage=true" },
+      {
+        sequence: 2,
+        outcome:
+          'ai-response:model=vision-model;response={"isFood":true,"visibleContents":"a white toilet"}',
+      },
+    ]);
+    expect(JSON.stringify(traces)).not.toContain("base64,secret");
   });
 });
 

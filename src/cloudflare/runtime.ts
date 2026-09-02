@@ -31,7 +31,11 @@ export async function processCloudflareFoodJob(
   env: CloudflareRuntimeEnv,
 ): Promise<string> {
   const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
-  const analyzer = createCloudflareNutritionAnalyzer(env);
+  const analyzer = createCloudflareNutritionAnalyzer({
+    AI: traceWorkersAiBinding(env.AI, (sequence, outcome) =>
+      store.recordQueueOutcome(`${job.deliveryId}:ai:${sequence}`, outcome),
+    ),
+  });
   const target = new DofekClient({
     baseUrl: env.TARGET_API_BASE_URL,
     clientId: env.TARGET_API_CLIENT_ID,
@@ -143,6 +147,72 @@ async function readImageBytes(response: Response): Promise<Uint8Array> {
 
 export function createCloudflareNutritionAnalyzer(env: Pick<CloudflareRuntimeEnv, "AI">) {
   return createProductionNutritionAnalyzer({ workersAi: env.AI });
+}
+
+export function traceWorkersAiBinding(
+  binding: WorkersAiBinding,
+  record: (sequence: number, outcome: string) => Promise<unknown>,
+): WorkersAiBinding {
+  let sequence = 0;
+  return {
+    async run(model, input) {
+      await recordAiTrace(
+        record,
+        ++sequence,
+        `ai-request:model=${model};hasImage=${containsImage(input)}`,
+      );
+      try {
+        const result = await binding.run(model, input);
+        await recordAiTrace(
+          record,
+          ++sequence,
+          `ai-response:model=${model};response=${summarizeAiResponse(result)}`,
+        );
+        return result;
+      } catch (error) {
+        await recordAiTrace(
+          record,
+          ++sequence,
+          `ai-error:model=${model};error=${summarizeText(
+            error instanceof Error ? error.message : "Unknown error",
+          )}`,
+        );
+        throw error;
+      }
+    },
+  };
+}
+
+async function recordAiTrace(
+  record: (sequence: number, outcome: string) => Promise<unknown>,
+  sequence: number,
+  outcome: string,
+): Promise<void> {
+  try {
+    await record(sequence, outcome);
+  } catch (error) {
+    console.error("Unable to persist Workers AI trace", {
+      sequence,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+function containsImage(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsImage);
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === "image_url" && record.image_url) return true;
+  return Object.values(record).some(containsImage);
+}
+
+function summarizeAiResponse(result: Awaited<ReturnType<WorkersAiBinding["run"]>>): string {
+  const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
+  return summarizeText(typeof response === "string" ? response : JSON.stringify(response));
+}
+
+function summarizeText(value: string | undefined): string {
+  return (value ?? "undefined").replace(/[\r\n\t]+/g, " ").slice(0, 800);
 }
 
 export async function publishInteractiveMessageUpdate(
