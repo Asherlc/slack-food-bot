@@ -84,6 +84,7 @@ describe("Slack image analysis", () => {
           file: {
             mimetype: "image/jpeg",
             url_private_download: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+            thumb_1024: "https://files.slack.com/files-tmb/T1-F1/F1_1024.jpg",
             thumb_480: "https://files.slack.com/files-tmb/T1-F1/F1_480.jpg",
           },
         }),
@@ -116,7 +117,7 @@ describe("Slack image analysis", () => {
     });
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      new URL("https://files.slack.com/files-tmb/T1-F1/F1_480.jpg"),
+      new URL("https://files.slack.com/files-tmb/T1-F1/F1_1024.jpg"),
       { headers: { Authorization: "Bearer bot-token" } },
     );
     expect(analyzed).toEqual([{ image: [255, 216, 255], mediaType: "image/jpeg" }]);

@@ -15,6 +15,7 @@ const items = [
     nutrients: { calories: 320, protein_g: 12 },
   },
 ];
+const pastaObservation = { result: { answer: "Pasta" } };
 
 describe("NutritionAnalyzer", () => {
   it("passes a meal photo and optional caption to the vision analyzer", async () => {
@@ -130,21 +131,24 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
-  it("uses one low-latency Gemma vision request for a meal photo without a Gemini key", async () => {
+  it("grounds Gemma nutrition analysis with a Moondream geometry observation", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                isFood: true,
-                visibleContents: "a bowl of oatmeal",
-                items,
-              }),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce(pastaObservation)
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  isFood: true,
+                  visibleContents: ["a bowl", "oatmeal"],
+                  items,
+                }),
+              },
             },
-          },
-        ],
-      })),
+          ],
+        }),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -154,15 +158,24 @@ describe("NutritionAnalyzer", () => {
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
     ).resolves.toEqual(items);
 
-    expect(workersAi.run).toHaveBeenCalledTimes(1);
-    expect(workersAi.run).toHaveBeenCalledWith("@cf/google/gemma-4-26b-a4b-it", {
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
+    expect(workersAi.run).toHaveBeenNthCalledWith(1, "@cf/moondream/moondream3.1-9B-A2B", {
+      task: "query",
+      image: "data:image/jpeg;base64,/9j/",
+      question: expect.stringContaining("primary prepared food category"),
+      reasoning: false,
+      temperature: 0,
+      max_tokens: 128,
+      stream: false,
+    });
+    expect(workersAi.run).toHaveBeenNthCalledWith(2, "@cf/google/gemma-4-26b-a4b-it", {
       messages: [
         {
           role: "user",
           content: [
             expect.objectContaining({
               type: "text",
-              text: expect.stringContaining("Objectively identify only what is visibly present"),
+              text: expect.stringMatching(/independent.*Pasta/i),
             }),
             { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
           ],
@@ -173,14 +186,18 @@ describe("NutritionAnalyzer", () => {
       max_tokens: 512,
       reasoning_effort: "low",
       chat_template_kwargs: { enable_thinking: false },
+      stream: false,
     });
   });
 
   it("rejects a photo that the vision model does not recognize as food", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({
-        response: { isFood: false, visibleContents: "a bathroom toilet", items: [] },
-      })),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ result: { answer: "No food; a bathroom toilet" } })
+        .mockResolvedValueOnce({
+          response: { isFood: false, visibleContents: "a bathroom toilet", items: [] },
+        }),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -189,12 +206,15 @@ describe("NutritionAnalyzer", () => {
     await expect(
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
     ).rejects.toBeInstanceOf(NoFoodDetectedError);
-    expect(workersAi.run).toHaveBeenCalledTimes(1);
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed when the food-image gate returns an invalid response", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({ response: { visibleContents: "unclear" } })),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ result: { answer: "Unclear object" } })
+        .mockResolvedValueOnce({ response: { visibleContents: "unclear" } }),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -203,14 +223,17 @@ describe("NutritionAnalyzer", () => {
     await expect(
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
     ).rejects.toBeInstanceOf(NoFoodDetectedError);
-    expect(workersAi.run).toHaveBeenCalledTimes(1);
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
   });
 
   it("logs the vision gate decision and bounded visible description", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({
-        response: { isFood: false, visibleContents: `toilet ${"x".repeat(300)}`, items: [] },
-      })),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ result: { answer: "No food" } })
+        .mockResolvedValueOnce({
+          response: { isFood: false, visibleContents: `toilet ${"x".repeat(300)}`, items: [] },
+        }),
     };
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
@@ -234,21 +257,24 @@ describe("NutritionAnalyzer", () => {
 
   it("rejects an image result whose nutrient estimates are all zero", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({
-        response: {
-          isFood: true,
-          visibleContents: "a slice of pie",
-          items: [
-            {
-              foodName: "Pie",
-              foodDescription: "One slice",
-              category: "sweets_candy_and_desserts",
-              meal: "snack",
-              nutrients: { calories: 0, protein_g: 0, fat_g: 0 },
-            },
-          ],
-        },
-      })),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce(pastaObservation)
+        .mockResolvedValueOnce({
+          response: {
+            isFood: true,
+            visibleContents: "a slice of pie",
+            items: [
+              {
+                foodName: "Pie",
+                foodDescription: "One slice",
+                category: "sweets_candy_and_desserts",
+                meal: "snack",
+                nutrients: { calories: 0, protein_g: 0, fat_g: 0 },
+              },
+            ],
+          },
+        }),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -257,6 +283,28 @@ describe("NutritionAnalyzer", () => {
     await expect(
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
     ).rejects.toThrow(/zero nutrient estimates/i);
+  });
+
+  it("rejects a generic image label instead of publishing a vague draft", async () => {
+    const workersAi = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce(pastaObservation)
+        .mockResolvedValueOnce({
+          response: {
+            isFood: true,
+            visibleContents: "tubular pasta topped with cheese",
+            items: [{ ...items[0], foodName: "layered dish" }],
+          },
+        }),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
+    ).rejects.toThrow(/generic food label/i);
   });
 
   it("parses the JSON content from a Workers AI chat completion", async () => {

@@ -7,6 +7,7 @@ import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
 const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
+const workersAiObserverModel = "@cf/moondream/moondream3.1-9B-A2B";
 const workersAiVisionModel = "@cf/google/gemma-4-26b-a4b-it";
 const workersAiCategories = new Set<NutritionItem["category"]>([
   "beans_and_legumes",
@@ -114,6 +115,7 @@ export type WorkersAiBinding = {
     response?: unknown;
     choices?: Array<{ message?: { content?: unknown } }>;
     answer?: unknown;
+    result?: { answer?: unknown; caption?: unknown };
   }>;
 };
 
@@ -230,12 +232,31 @@ async function analyzeWorkersAiImage(
   input: Extract<NutritionGeneration, { kind: "analyze-image" }>,
 ): Promise<Awaited<ReturnType<WorkersAiBinding["run"]>>> {
   const image = imageDataUrl(input.image, input.mediaType);
+  let observation: string | undefined;
+  try {
+    const observerResult = await binding.run(workersAiObserverModel, {
+      task: "query",
+      image,
+      question:
+        "Identify the primary prepared food category strictly from its visible geometry and structure. Distinguish individual tubular pasta pieces or casserole from pie. Do not identify toppings or infer ingredients. If there is no edible food or drink, say so plainly.",
+      reasoning: false,
+      temperature: 0,
+      max_tokens: 128,
+      stream: false,
+    });
+    observation = extractWorkersAiText(observerResult);
+  } catch (error) {
+    console.warn("Workers AI image observer unavailable", {
+      model: workersAiObserverModel,
+      error: error instanceof Error ? error.message.slice(0, 200) : "Unknown error",
+    });
+  }
   const result = await binding.run(workersAiVisionModel, {
     messages: [
       {
         role: "user",
         content: [
-          { type: "text", text: workerPromptFor(input) },
+          { type: "text", text: workerPromptFor(input, observation) },
           { type: "image_url", image_url: { url: image } },
         ],
       },
@@ -245,29 +266,51 @@ async function analyzeWorkersAiImage(
     max_tokens: 512,
     reasoning_effort: "low",
     chat_template_kwargs: { enable_thinking: false },
+    stream: false,
   });
   const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
   const analysis = parseWorkersAiResponse(response);
   const items = isRecord(analysis) && Array.isArray(analysis.items) ? analysis.items : undefined;
+  const visibleContents = normalizeVisibleContents(
+    isRecord(analysis) ? analysis.visibleContents : undefined,
+  );
   const validAnalysis =
     isRecord(analysis) &&
     typeof analysis.isFood === "boolean" &&
-    typeof analysis.visibleContents === "string" &&
+    visibleContents !== undefined &&
     items !== undefined;
   console.info("Workers AI image analysis", {
     model: workersAiVisionModel,
     valid: validAnalysis,
     isFood: isRecord(analysis) && analysis.isFood === true,
-    visibleContents:
-      isRecord(analysis) && typeof analysis.visibleContents === "string"
-        ? analysis.visibleContents.slice(0, 200)
-        : undefined,
+    visibleContents: visibleContents?.slice(0, 200),
   });
   if (!validAnalysis || !isRecord(analysis) || analysis.isFood !== true || !items?.length)
     throw new NoFoodDetectedError();
   if (items.some(hasInvalidZeroNutrition))
     throw new Error("Workers AI image analysis returned all-zero nutrient estimates");
+  if (items.some(hasGenericFoodLabel))
+    throw new Error("Workers AI image analysis returned a generic food label");
   return { response: { items } };
+}
+
+function normalizeVisibleContents(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string"))
+    return value.join(", ");
+  return undefined;
+}
+
+function extractWorkersAiText(
+  result: Awaited<ReturnType<WorkersAiBinding["run"]>>,
+): string | undefined {
+  const value =
+    result.result?.answer ??
+    result.result?.caption ??
+    result.answer ??
+    result.response ??
+    result.choices?.[0]?.message?.content;
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 500) : undefined;
 }
 
 function parseWorkersAiResponse(response: unknown): unknown {
@@ -294,8 +337,11 @@ function imageDataUrl(image: Uint8Array, mediaType: string): string {
   return `data:${mediaType};base64,${btoa(binary)}`;
 }
 
-function workerPromptFor(input: Extract<NutritionGeneration, { kind: "analyze-image" }>): string {
-  return `Objectively identify only what is visibly present in the image before estimating nutrition. Distinguish food by its visible shape and structure; for example, do not confuse tubular pasta or a casserole with pie. Do not infer food from colors, context, or the fact that this prompt concerns nutrition. Toilets, waste, bodily substances, packaging without visible food, household objects, and ambiguous scenes are not food.\nReturn only one valid JSON object with isFood (boolean), visibleContents (a concise objective description), and items (an array). If edible food or a beverage is not clearly visible, set isFood to false and items to []. If food is visible, set isFood to true and populate items according to these rules: ${nutritionInstruction()} For visible food other than zero-calorie beverages, nutrient estimates must contain realistic positive values and must not all be zero.\nLocal time: ${input.localTime}\nOptional photo caption: ${input.text || "(none)"}`;
+function workerPromptFor(
+  input: Extract<NutritionGeneration, { kind: "analyze-image" }>,
+  observation?: string,
+): string {
+  return `Objectively analyze the image using visible shape and structure. An independent observer supplied this primary-food geometry hint; verify it against the image and determine toppings yourself: ${observation ?? "(observer unavailable)"}. Do not infer food from colors, context, or the fact that this prompt concerns nutrition. Toilets, waste, bodily substances, packaging without visible food, household objects, and ambiguous scenes are not food.\nReturn only one valid JSON object with isFood (boolean), visibleContents (a concise objective description), and items (an array). If edible food or a beverage is not clearly visible, set isFood to false and items to []. If food is visible, set isFood to true and populate prepared foods as served, not separate toppings, seasonings, or inferred ingredients. For a single container, return one composite item unless multiple separately served foods are clearly visible. Use a specific food name supported by visible structure; never use generic names such as dish, layered dish, meal, or food. Do not invent meat or ingredients. Follow these item rules: ${nutritionInstruction()} For visible food other than zero-calorie beverages, nutrient estimates must contain realistic positive values and must not all be zero.\nLocal time: ${input.localTime}\nOptional photo caption: ${input.text || "(none)"}`;
 }
 
 function hasInvalidZeroNutrition(value: unknown): boolean {
@@ -303,6 +349,11 @@ function hasInvalidZeroNutrition(value: unknown): boolean {
     return false;
   const nutrientValues = Object.values(value.nutrients);
   return nutrientValues.length === 0 || nutrientValues.every((nutrient) => nutrient === 0);
+}
+
+function hasGenericFoodLabel(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.foodName !== "string") return false;
+  return /^(?:layered\s+)?(?:dish|food|meal)$/i.test(value.foodName.trim());
 }
 
 function normalizeWorkersAiOutput(value: unknown): unknown {
