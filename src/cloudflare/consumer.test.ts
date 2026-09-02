@@ -131,11 +131,12 @@ describe("Cloudflare food Queue consumer", () => {
             team_id: "T1",
             event: {
               type: "message",
+              subtype: "file_share",
               channel_type: "im",
               user: "U1",
               channel: "D1",
               ts: "1710000000.000001",
-              text: "toilet.jpg",
+              text: "Uploaded a file",
             },
           },
         },
@@ -182,6 +183,7 @@ describe("Cloudflare food Queue consumer", () => {
                   id: "F1",
                   mimetype: "image/jpeg",
                   url_private_download: "https://files.slack.test/F1.jpg",
+                  thumb_480: "https://files.slack.test/F1_480.jpg",
                 },
               ],
             },
@@ -208,7 +210,7 @@ describe("Cloudflare food Queue consumer", () => {
     expect(analyzed).toEqual([
       expect.objectContaining({
         teamId: "T1",
-        url: "https://files.slack.test/F1.jpg",
+        url: "https://files.slack.test/F1_480.jpg",
         mediaType: "image/jpeg",
       }),
     ]);
