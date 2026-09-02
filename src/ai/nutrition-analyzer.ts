@@ -168,9 +168,9 @@ export class NutritionAnalyzer {
     const gemini = this.#gemini;
     const mistral = this.#mistral;
     const workersAi = this.#workersAi;
+    if (workersAi) return parseNutritionItems(await workersAi.generate(input));
     if (!gemini) {
       if (mistral) return parseNutritionItems(await mistral.generate(input));
-      if (workersAi) return parseNutritionItems(await workersAi.generate(input));
       throw new Error("A nutrition model is required");
     }
     try {
@@ -178,7 +178,6 @@ export class NutritionAnalyzer {
     } catch (error) {
       if (!isRateLimited(error)) throw error;
       if (mistral) return parseNutritionItems(await mistral.generate(input));
-      if (workersAi) return parseNutritionItems(await workersAi.generate(input));
       throw error;
     }
   }

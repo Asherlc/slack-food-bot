@@ -50,6 +50,19 @@ describe("NutritionAnalyzer", () => {
     expect(mistral.generate).not.toHaveBeenCalled();
   });
 
+  it("prefers Workers AI over paid providers when the Cloudflare binding is available", async () => {
+    const workersAi: NutritionGenerator = { generate: vi.fn(async () => ({ items })) };
+    const gemini: NutritionGenerator = { generate: vi.fn(async () => ({ items: [] })) };
+    const mistral: NutritionGenerator = { generate: vi.fn(async () => ({ items: [] })) };
+    const analyzer = new NutritionAnalyzer({ workersAi, gemini, mistral });
+
+    await expect(analyzer.analyze("oatmeal", "08:00")).resolves.toEqual(items);
+
+    expect(workersAi.generate).toHaveBeenCalledTimes(1);
+    expect(gemini.generate).not.toHaveBeenCalled();
+    expect(mistral.generate).not.toHaveBeenCalled();
+  });
+
   it("falls back to Mistral only after a Gemini rate limit", async () => {
     const gemini: NutritionGenerator = {
       generate: vi.fn(async () => {
