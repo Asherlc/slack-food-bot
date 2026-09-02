@@ -126,11 +126,13 @@ async function resolveSlackImageReference(input: {
   const metadata = file as Record<string, unknown>;
   const mediaType = typeof metadata.mimetype === "string" ? metadata.mimetype : undefined;
   const url =
-    typeof metadata.url_private_download === "string"
-      ? metadata.url_private_download
-      : typeof metadata.url_private === "string"
-        ? metadata.url_private
-        : undefined;
+    typeof metadata.thumb_480 === "string"
+      ? metadata.thumb_480
+      : typeof metadata.url_private_download === "string"
+        ? metadata.url_private_download
+        : typeof metadata.url_private === "string"
+          ? metadata.url_private
+          : undefined;
   if (!mediaType?.startsWith("image/") || !url)
     throw new Error("Slack file lookup did not return an image");
   return { url, mediaType };

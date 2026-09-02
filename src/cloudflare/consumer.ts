@@ -144,6 +144,7 @@ async function processEvent(
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   const photo = imageFile(event);
   if (!text && !photo) return "ignored:empty";
+  if (subtype === "file_share" && !photo) return "image-pending";
   if (!photo && isImageFilename(text)) return "image-pending";
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
   if (!(await dependencies.loadGrant(`${teamId}:${userId}`))) {
@@ -271,7 +272,9 @@ function imageFile(
     const fileId = stringField(candidate, "id");
     const mediaType = stringField(candidate, "mimetype");
     const url =
-      stringField(candidate, "url_private_download") ?? stringField(candidate, "url_private");
+      stringField(candidate, "thumb_480") ??
+      stringField(candidate, "url_private_download") ??
+      stringField(candidate, "url_private");
     if (mediaType?.startsWith("image/") && url)
       return { ...(fileId ? { fileId } : {}), mediaType, url };
     if (
