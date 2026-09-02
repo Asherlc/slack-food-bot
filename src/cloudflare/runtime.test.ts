@@ -75,6 +75,47 @@ describe("Cloudflare AI backend", () => {
 });
 
 describe("Slack image analysis", () => {
+  it("resolves pending Slack file metadata before downloading the image", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          ok: true,
+          file: {
+            mimetype: "image/jpeg",
+            url_private_download: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([255, 216, 255]), {
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetch);
+    const analyzed: unknown[] = [];
+
+    try {
+      await analyzeSlackImage({
+        fileId: "F1",
+        text: "",
+        localTime: "12:00",
+        botToken: "bot-token",
+        analyze: async (image, mediaType) => {
+          analyzed.push({ image: [...image], mediaType });
+          return items;
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(fetch).toHaveBeenNthCalledWith(1, "https://slack.com/api/files.info?file=F1", {
+      headers: { Authorization: "Bearer bot-token" },
+    });
+    expect(analyzed).toEqual([{ image: [255, 216, 255], mediaType: "image/jpeg" }]);
+  });
+
   it("reports a failed Slack image download", async () => {
     vi.stubGlobal("fetch", async () => new Response("forbidden", { status: 403 }));
 

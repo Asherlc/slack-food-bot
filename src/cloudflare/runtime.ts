@@ -74,8 +74,9 @@ export async function processCloudflareFoodJob(
 }
 
 export async function analyzeSlackImage(input: {
-  url: string;
-  mediaType: string;
+  fileId?: string;
+  url?: string;
+  mediaType?: string;
   text: string;
   localTime: string;
   botToken: string;
@@ -86,7 +87,8 @@ export async function analyzeSlackImage(input: {
     localTime: string,
   ): Promise<NutritionItem[]>;
 }): Promise<NutritionItem[]> {
-  const url = trustedSlackImageUrl(input.url);
+  const imageReference = await resolveSlackImageReference(input);
+  const url = trustedSlackImageUrl(imageReference.url);
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${input.botToken}` },
   });
@@ -100,6 +102,38 @@ export async function analyzeSlackImage(input: {
   const image = await readImageBytes(response);
   if (image.byteLength === 0) throw new Error("Slack image download was empty");
   return input.analyze(image, responseMediaType, input.text, input.localTime);
+}
+
+async function resolveSlackImageReference(input: {
+  fileId?: string;
+  url?: string;
+  mediaType?: string;
+  botToken: string;
+}): Promise<{ url: string; mediaType: string }> {
+  if (input.url && input.mediaType) return { url: input.url, mediaType: input.mediaType };
+  if (!input.fileId) throw new Error("Slack image metadata is unavailable");
+  const response = await fetch(
+    `https://slack.com/api/files.info?file=${encodeURIComponent(input.fileId)}`,
+    { headers: { Authorization: `Bearer ${input.botToken}` } },
+  );
+  if (!response.ok) throw new Error(`Slack file lookup failed with status ${response.status}`);
+  const body: unknown = await response.json();
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    throw new Error("Slack file lookup returned an invalid response");
+  const file = (body as Record<string, unknown>).file;
+  if (!file || typeof file !== "object" || Array.isArray(file))
+    throw new Error("Slack file lookup omitted file metadata");
+  const metadata = file as Record<string, unknown>;
+  const mediaType = typeof metadata.mimetype === "string" ? metadata.mimetype : undefined;
+  const url =
+    typeof metadata.url_private_download === "string"
+      ? metadata.url_private_download
+      : typeof metadata.url_private === "string"
+        ? metadata.url_private
+        : undefined;
+  if (!mediaType?.startsWith("image/") || !url)
+    throw new Error("Slack file lookup did not return an image");
+  return { url, mediaType };
 }
 
 function trustedSlackImageUrl(value: string): URL {
