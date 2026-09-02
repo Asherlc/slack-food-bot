@@ -7,7 +7,7 @@ import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
 const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
-const workersAiVisionModel = "@cf/moondream/moondream3.1-9B-A2B";
+const workersAiVisionModel = "@cf/meta/llama-4-scout-17b-16e-instruct";
 const workersAiCategories = new Set<NutritionItem["category"]>([
   "beans_and_legumes",
   "beverages",
@@ -213,7 +213,15 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
             });
       const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
       const parsedResponse = parseWorkersAiResponse(response);
-      return normalizeWorkersAiOutput(parsedResponse);
+      const normalized = normalizeWorkersAiOutput(parsedResponse);
+      if (
+        input.kind === "analyze-image" &&
+        isRecord(normalized) &&
+        Array.isArray(normalized.items) &&
+        normalized.items.length === 0
+      )
+        throw new NoFoodDetectedError();
+      return normalized;
     },
   };
 }
@@ -223,27 +231,18 @@ async function analyzeWorkersAiImage(
   input: Extract<NutritionGeneration, { kind: "analyze-image" }>,
 ): Promise<Awaited<ReturnType<WorkersAiBinding["run"]>>> {
   const image = imageDataUrl(input.image, input.mediaType);
-  const classification = await binding.run(workersAiVisionModel, {
-    task: "query",
-    image,
-    question:
-      "Does this image clearly show edible food or a beverage intended for human consumption? Toilets, waste, bodily substances, packaging without visible food, household objects, and ambiguous scenes are NOT_FOOD. Reply with exactly FOOD or NOT_FOOD.",
-    reasoning: false,
-    stream: false,
-    max_tokens: 16,
-  });
-  const classificationText =
-    classification.answer ??
-    classification.response ??
-    classification.choices?.[0]?.message?.content;
-  if (typeof classificationText !== "string" || classificationText.trim().toUpperCase() !== "FOOD")
-    throw new NoFoodDetectedError();
   return binding.run(workersAiVisionModel, {
-    task: "query",
-    image,
-    question: workerPromptFor(input),
-    reasoning: false,
-    stream: false,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: workerPromptFor(input) },
+          { type: "image_url", image_url: { url: image } },
+        ],
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0,
     max_tokens: 1024,
   });
 }
@@ -273,7 +272,7 @@ function imageDataUrl(image: Uint8Array, mediaType: string): string {
 }
 
 function workerPromptFor(input: Extract<NutritionGeneration, { kind: "analyze-image" }>): string {
-  return `${nutritionInstruction()}\nLocal time: ${input.localTime}\nOptional photo caption: ${input.text || "(none)"}`;
+  return `${nutritionInstruction()}\nIf the image does not clearly show edible food or a beverage intended for human consumption, return {"items":[]}. Toilets, waste, bodily substances, packaging without visible food, household objects, and ambiguous scenes are not food. Never guess a food item from visual resemblance alone.\nLocal time: ${input.localTime}\nOptional photo caption: ${input.text || "(none)"}`;
 }
 
 function normalizeWorkersAiOutput(value: unknown): unknown {
