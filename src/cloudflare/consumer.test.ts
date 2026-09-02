@@ -159,6 +159,45 @@ describe("Cloudflare food Queue consumer", () => {
     expect(analyzeText).not.toHaveBeenCalled();
   });
 
+  it("defers Slack's private-file URL placeholder instead of analyzing it as food", async () => {
+    const analyzeText = vi.fn(async () => [oatmeal]);
+
+    await expect(
+      processFoodQueueJob(
+        {
+          kind: "event",
+          deliveryId: "EvPrivateFilePlaceholder",
+          payload: {
+            team_id: "T1",
+            event: {
+              type: "message",
+              channel_type: "im",
+              user: "U1",
+              channel: "D1",
+              ts: "1710000000.000001",
+              text: "<https://files.slack.com/files-pri/T1-F1/photo.heic|photo.heic>",
+            },
+          },
+        },
+        {
+          loadGrant: async () => ({
+            externalSubject: "T1:U1",
+            grantId: "grant-1",
+            accessToken: "token",
+            expiresInSeconds: 900,
+          }),
+          publishLinkRequired: async () => undefined,
+          analyze: analyzeText,
+          publishDraft: async () => {
+            throw new Error("must not publish a draft");
+          },
+          savePending: async () => undefined,
+        },
+      ),
+    ).resolves.toBe("image-pending");
+    expect(analyzeText).not.toHaveBeenCalled();
+  });
+
   it("analyzes the completed image nested in Slack's message_changed event", async () => {
     const analyzed: unknown[] = [];
 
