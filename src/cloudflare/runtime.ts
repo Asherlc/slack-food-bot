@@ -62,6 +62,7 @@ export async function processCloudflareFoodJob(
     publishDraft: (input) => messenger.publishDraft(input),
     publishClarification: (input) => messenger.publishClarification(input),
     publishLinkRequired: (input) => messenger.publishLinkRequired(input),
+    publishAnalysisFailure: (input) => messenger.publishAnalysisFailure(input),
     savePending: (entries) => store.savePending(entries, 86_400),
     findPending: (channelId, messageTs) => store.findPending(channelId, messageTs),
     deletePending: (ids) => store.deletePending(ids),
@@ -88,36 +89,56 @@ export async function analyzeSlackImage(input: {
     localTime: string,
   ): Promise<NutritionItem[]>;
 }): Promise<NutritionItem[]> {
-  const response = await fetch(input.url, {
+  const url = trustedSlackImageUrl(input.url);
+  const response = await fetch(url, {
     headers: { Authorization: `Bearer ${input.botToken}` },
   });
   if (!response.ok) throw new Error(`Slack image download failed with status ${response.status}`);
-  const responseMediaType = response.headers.get("content-type")?.split(";", 1)[0];
+  const responseMediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim();
   if (!responseMediaType?.startsWith("image/"))
     throw new Error("Slack image download did not return an image");
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxSlackImageBytes)
     throw new Error("Slack image download exceeds 5 MiB");
-  const image = await readSlackImage(response);
+  const image = await readImageBytes(response);
   return input.analyze(image, responseMediaType, input.text, input.localTime);
 }
 
-async function readSlackImage(response: Response): Promise<Uint8Array> {
-  const reader = response.body?.getReader();
-  if (!reader) return new Uint8Array();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.byteLength;
-    if (length > maxSlackImageBytes) {
-      await reader.cancel();
-      throw new Error("Slack image download exceeds 5 MiB");
-    }
-    chunks.push(value);
+function trustedSlackImageUrl(value: string): URL {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Invalid Slack image URL");
   }
-  const image = new Uint8Array(length);
+  if (
+    url.protocol !== "https:" ||
+    (url.hostname !== "files.slack.com" && url.hostname !== "slack.com")
+  )
+    throw new Error("Invalid Slack image URL");
+  return url;
+}
+
+async function readImageBytes(response: Response): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > maxSlackImageBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Slack image download exceeds 5 MiB");
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const image = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
     image.set(chunk, offset);
@@ -171,6 +192,15 @@ export async function notifySlackLinkCompleted(input: {
   await new CloudflareSlackMessenger(input.store).publishLinkCompleted(input);
 }
 
+export async function notifySlackAnalysisFailure(input: {
+  teamId: string;
+  channelId: string;
+  threadTs: string;
+  store: SlackInstallationStore;
+}): Promise<void> {
+  await new CloudflareSlackMessenger(input.store).publishAnalysisFailure(input);
+}
+
 class CloudflareSlackMessenger {
   readonly #store: SlackInstallationStore;
 
@@ -217,6 +247,18 @@ class CloudflareSlackMessenger {
       channel: input.channelId,
       thread_ts: input.threadTs,
       text: "Before I can log food, link your Dofek account with `/link-dofek`.",
+    });
+  }
+
+  async publishAnalysisFailure(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+  }): Promise<void> {
+    await this.#call(input.teamId, "chat.postMessage", {
+      channel: input.channelId,
+      thread_ts: input.threadTs,
+      text: "I couldn't analyze that photo. Please try again. If photo analysis was just enabled, reinstall Slack Food Bot first so it can access uploaded files.",
     });
   }
 

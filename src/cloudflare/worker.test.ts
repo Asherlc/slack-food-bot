@@ -30,6 +30,11 @@ describe("Cloudflare Worker", () => {
     expect(response.headers.get("location")).toMatch(
       /^https:\/\/slack\.com\/oauth\/v2\/authorize\?/,
     );
+    const location = response.headers.get("location");
+    expect(location).not.toBeNull();
+    expect(new URL(location as string).searchParams.get("scope")?.split(",")).toContain(
+      "files:read",
+    );
   });
 
   it("serves a secret-free health response without accessing state", async () => {

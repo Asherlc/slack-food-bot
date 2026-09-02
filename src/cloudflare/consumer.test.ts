@@ -68,6 +68,69 @@ describe("Cloudflare food Queue consumer", () => {
     expect(saved).toEqual([expect.objectContaining({ id: "entry:EvPhoto:0", item: oatmeal })]);
   });
 
+  it("tells the user when photo analysis fails instead of going silent", async () => {
+    const failures: unknown[] = [];
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        processFoodQueueJob(
+          {
+            kind: "event",
+            deliveryId: "EvPhotoFailure",
+            payload: {
+              team_id: "T1",
+              event: {
+                type: "message",
+                subtype: "file_share",
+                channel_type: "im",
+                user: "U1",
+                channel: "D1",
+                ts: "1710000000.000001",
+                files: [
+                  {
+                    mimetype: "image/jpeg",
+                    url_private_download: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+                  },
+                ],
+              },
+            },
+          },
+          {
+            loadGrant: async () => ({
+              externalSubject: "T1:U1",
+              grantId: "grant-1",
+              accessToken: "token",
+              expiresInSeconds: 900,
+            }),
+            publishLinkRequired: async () => undefined,
+            analyzeImage: async () => {
+              throw new Error("Slack image download failed with status 403");
+            },
+            publishAnalysisFailure: async (input) => {
+              failures.push(input);
+            },
+            publishDraft: async () => {
+              throw new Error("must not publish a draft");
+            },
+            savePending: async () => {
+              throw new Error("must not save pending entries");
+            },
+          },
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(errorLog).toHaveBeenCalledWith("Slack photo analysis failed", {
+        deliveryId: "EvPhotoFailure",
+        error: "Slack image download failed with status 403",
+      });
+    } finally {
+      errorLog.mockRestore();
+    }
+
+    expect(failures).toEqual([{ teamId: "T1", channelId: "D1", threadTs: "1710000000.000001" }]);
+  });
+
   it("requires a Dofek link before analyzing or drafting a food message", async () => {
     const analyze = vi.fn(async () => [oatmeal]);
     const prompts: unknown[] = [];

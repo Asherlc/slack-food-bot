@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   analyzeSlackImage,
+  notifySlackAnalysisFailure,
   notifySlackLinkCompleted,
   publishInteractiveMessageUpdate,
   resolveAiCredentials,
@@ -31,7 +32,7 @@ describe("Slack image analysis", () => {
     try {
       await expect(
         analyzeSlackImage({
-          url: "https://files.slack.test/F1.jpg",
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
           mediaType: "image/jpeg",
           text: "lunch",
           localTime: "12:00",
@@ -53,7 +54,7 @@ describe("Slack image analysis", () => {
     try {
       await expect(
         analyzeSlackImage({
-          url: "https://files.slack.test/F1.jpg",
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
           mediaType: "image/jpeg",
           text: "lunch",
           localTime: "12:00",
@@ -78,7 +79,7 @@ describe("Slack image analysis", () => {
     try {
       await expect(
         analyzeSlackImage({
-          url: "https://files.slack.test/F1.jpg",
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
           mediaType: "image/jpeg",
           text: "lunch",
           localTime: "12:00",
@@ -109,7 +110,7 @@ describe("Slack image analysis", () => {
     try {
       await expect(
         analyzeSlackImage({
-          url: "https://files.slack.test/F1.jpg",
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
           mediaType: "image/jpeg",
           text: "lunch",
           localTime: "12:00",
@@ -135,7 +136,7 @@ describe("Slack image analysis", () => {
 
     try {
       await analyzeSlackImage({
-        url: "https://files.slack.test/F1.jpg",
+        url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
         mediaType: "image/jpeg",
         text: "lunch",
         localTime: "12:00",
@@ -154,7 +155,7 @@ describe("Slack image analysis", () => {
 
   it("downloads a private Slack image with the installation token and passes only its bytes to analysis", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://files.slack.test/F1.jpg");
+      expect(String(input)).toBe("https://files.slack.com/files-pri/T1-F1/download/F1.jpg");
       expect(init?.headers).toEqual({ Authorization: "Bearer bot-token" });
       return new Response(new Uint8Array([255, 216, 255]), {
         headers: { "content-type": "image/jpeg" },
@@ -165,7 +166,7 @@ describe("Slack image analysis", () => {
 
     try {
       await analyzeSlackImage({
-        url: "https://files.slack.test/F1.jpg",
+        url: "https://files.slack.com/files-pri/T1-F1/download/F1.jpg",
         mediaType: "image/jpeg",
         text: "lunch",
         localTime: "12:00",
@@ -182,6 +183,107 @@ describe("Slack image analysis", () => {
     expect(inputs).toEqual([
       { image: [255, 216, 255], mediaType: "image/jpeg", text: "lunch", localTime: "12:00" },
     ]);
+  });
+
+  it("does not send the Slack bot token to an untrusted download host", async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([255, 216, 255])));
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.example.test/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow(/Slack image URL/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized Slack image before buffering its response", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(new Uint8Array(), {
+          headers: { "content-length": "999999999", "content-type": "image/jpeg" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/download/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download exceeds 5 MiB");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("stops reading an oversized Slack image when content length is absent", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(6 * 1024 * 1024));
+              controller.enqueue(new Uint8Array(6 * 1024 * 1024));
+              controller.close();
+            },
+          }),
+          { headers: { "content-type": "image/jpeg" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/download/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download exceeds 5 MiB");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects a non-image Slack response instead of sending login HTML to the model", async () => {
+    const fetch = vi.fn(
+      async () => new Response("sign in", { headers: { "content-type": "text/html" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/download/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download did not return an image");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -208,6 +310,43 @@ describe("Slack link completion", () => {
       await notifySlackLinkCompleted({
         teamId: "T1",
         userId: "U1",
+        store: {
+          loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+        },
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Slack analysis failure", () => {
+  it("replies in the source thread with photo recovery guidance", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe("https://slack.com/api/chat.postMessage");
+      expect(init).toMatchObject({
+        method: "POST",
+        headers: {
+          Authorization: "Bearer bot-token",
+          "content-type": "application/json; charset=utf-8",
+        },
+      });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        channel: "D1",
+        thread_ts: "1.0",
+        text: "I couldn't analyze that photo. Please try again. If photo analysis was just enabled, reinstall Slack Food Bot first so it can access uploaded files.",
+      });
+      return Response.json({ ok: true, ts: "2.0" });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      await notifySlackAnalysisFailure({
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "1.0",
         store: {
           loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
         },

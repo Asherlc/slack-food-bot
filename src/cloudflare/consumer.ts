@@ -55,6 +55,11 @@ type ConsumerDependencies = Partial<{
     channelId: string;
     threadTs: string;
   }): Promise<void>;
+  publishAnalysisFailure(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+  }): Promise<void>;
   savePending(entries: ReadonlyArray<CloudflarePendingEntry>): Promise<void>;
   findPending(channelId: string, confirmationMessageTs: string): Promise<CloudflarePendingEntry[]>;
   deletePending(ids: ReadonlyArray<string>): Promise<void>;
@@ -106,8 +111,9 @@ async function processEvent(
   )
     throw new Error("Cloudflare analysis workflow is not configured");
   const event = objectField(job.payload, "event");
-  const subtype = event ? stringField(event, "subtype") : undefined;
-  if (!event || (subtype && subtype !== "file_share") || stringField(event, "bot_id")) return;
+  if (!event || stringField(event, "bot_id")) return;
+  const subtype = stringField(event, "subtype");
+  if (subtype && subtype !== "file_share") return;
   const type = stringField(event, "type");
   const channelType = stringField(event, "channel_type");
   if (
@@ -155,9 +161,22 @@ async function processEvent(
   // Slack event payloads do not include the sender's timezone, so analysis uses UTC consistently.
   const localTime = time.toISOString().slice(11, 16);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
-  const items = photo
-    ? await analyzeImage(dependencies, { teamId, ...photo, text: description, localTime })
-    : await analyzeText(dependencies, description, localTime);
+  let items: NutritionItem[];
+  if (photo) {
+    try {
+      items = await analyzeImage(dependencies, { teamId, ...photo, text: description, localTime });
+    } catch (error) {
+      if (!dependencies.publishAnalysisFailure) throw error;
+      console.error("Slack photo analysis failed", {
+        deliveryId: job.deliveryId,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      await dependencies.publishAnalysisFailure({ teamId, channelId, threadTs });
+      return;
+    }
+  } else {
+    items = await analyzeText(dependencies, description, localTime);
+  }
   const draft = await dependencies.publishDraft({ teamId, channelId, threadTs, items });
   await dependencies.savePending(
     items.map((item, index) => ({

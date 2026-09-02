@@ -73,11 +73,20 @@ export class CloudflareStore {
   }
 
   async saveClarification(input: ClarificationKey & { description: string }): Promise<void> {
-    await this.saveLink(clarificationState(input), { description: input.description }, 3_600);
+    const value = { description: input.description };
+    await this.saveLink(clarificationState(input), value, 3_600);
+    await this.saveLink(clarificationFallbackState(input), value, 3_600);
   }
 
   async consumeClarification(input: ClarificationKey): Promise<{ description: string } | null> {
-    return this.consumeLink<{ description: string }>(clarificationState(input));
+    const clarification = await this.consumeLink<{ description: string }>(
+      clarificationState(input),
+    );
+    if (clarification) {
+      await this.consumeLink(clarificationFallbackState(input));
+      return clarification;
+    }
+    return this.consumeLink<{ description: string }>(clarificationFallbackState(input));
   }
 
   async saveGrant(subject: string, grant: unknown): Promise<void> {
@@ -147,6 +156,10 @@ export class CloudflareStore {
 
 function clarificationState(input: ClarificationKey): string {
   return `clarification:${input.teamId}:${input.channelId}:${input.threadTs}:${input.userId}`;
+}
+
+function clarificationFallbackState(input: Omit<ClarificationKey, "threadTs">): string {
+  return `clarification-fallback:${input.teamId}:${input.channelId}:${input.userId}`;
 }
 
 async function encrypt(encryptionKey: string, value: unknown): Promise<string> {
