@@ -167,7 +167,7 @@ export class CloudflareStore {
       .prepare(
         "INSERT INTO queue_outcomes (delivery_id, outcome, occurred_at) VALUES (?, ?, unixepoch()) ON CONFLICT(delivery_id) DO UPDATE SET outcome = excluded.outcome, occurred_at = excluded.occurred_at",
       )
-      .bind(deliveryId, outcome.slice(0, 100))
+      .bind(deliveryId, outcome.slice(0, 1_000))
       .run();
   }
 }

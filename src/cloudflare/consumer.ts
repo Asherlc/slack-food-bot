@@ -272,6 +272,10 @@ function imageFile(
     const fileId = stringField(candidate, "id");
     const mediaType = stringField(candidate, "mimetype");
     const url =
+      stringField(candidate, "thumb_1024") ??
+      stringField(candidate, "thumb_960") ??
+      stringField(candidate, "thumb_800") ??
+      stringField(candidate, "thumb_720") ??
       stringField(candidate, "thumb_480") ??
       stringField(candidate, "url_private_download") ??
       stringField(candidate, "url_private");

@@ -222,6 +222,7 @@ describe("Cloudflare food Queue consumer", () => {
                   id: "F1",
                   mimetype: "image/jpeg",
                   url_private_download: "https://files.slack.test/F1.jpg",
+                  thumb_1024: "https://files.slack.test/F1_1024.jpg",
                   thumb_480: "https://files.slack.test/F1_480.jpg",
                 },
               ],
@@ -249,7 +250,7 @@ describe("Cloudflare food Queue consumer", () => {
     expect(analyzed).toEqual([
       expect.objectContaining({
         teamId: "T1",
-        url: "https://files.slack.test/F1_480.jpg",
+        url: "https://files.slack.test/F1_1024.jpg",
         mediaType: "image/jpeg",
       }),
     ]);

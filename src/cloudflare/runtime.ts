@@ -126,13 +126,21 @@ async function resolveSlackImageReference(input: {
   const metadata = file as Record<string, unknown>;
   const mediaType = typeof metadata.mimetype === "string" ? metadata.mimetype : undefined;
   const url =
-    typeof metadata.thumb_480 === "string"
-      ? metadata.thumb_480
-      : typeof metadata.url_private_download === "string"
-        ? metadata.url_private_download
-        : typeof metadata.url_private === "string"
-          ? metadata.url_private
-          : undefined;
+    typeof metadata.thumb_1024 === "string"
+      ? metadata.thumb_1024
+      : typeof metadata.thumb_960 === "string"
+        ? metadata.thumb_960
+        : typeof metadata.thumb_800 === "string"
+          ? metadata.thumb_800
+          : typeof metadata.thumb_720 === "string"
+            ? metadata.thumb_720
+            : typeof metadata.thumb_480 === "string"
+              ? metadata.thumb_480
+              : typeof metadata.url_private_download === "string"
+                ? metadata.url_private_download
+                : typeof metadata.url_private === "string"
+                  ? metadata.url_private
+                  : undefined;
   if (!mediaType?.startsWith("image/") || !url)
     throw new Error("Slack file lookup did not return an image");
   return { url, mediaType };
@@ -243,7 +251,12 @@ function containsImage(value: unknown): boolean {
 }
 
 function summarizeAiResponse(result: Awaited<ReturnType<WorkersAiBinding["run"]>>): string {
-  const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
+  const response =
+    result.response ??
+    result.answer ??
+    result.result?.answer ??
+    result.result?.caption ??
+    result.choices?.[0]?.message?.content;
   return summarizeText(typeof response === "string" ? response : JSON.stringify(response));
 }
 

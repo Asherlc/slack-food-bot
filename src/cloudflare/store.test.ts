@@ -146,6 +146,16 @@ describe("CloudflareStore", () => {
     expect(database.values).toEqual(["Ev1", "Workers AI returned 500"]);
   });
 
+  it("preserves bounded AI response details in queue outcomes", async () => {
+    const database = new MemoryD1();
+    const store = new CloudflareStore(database, encryptionKey);
+    const diagnostic = `ai-response:${"x".repeat(800)}`;
+
+    await store.recordQueueOutcome("Ev1:ai:2", diagnostic);
+
+    expect(database.values).toEqual(["Ev1:ai:2", diagnostic]);
+  });
+
   it("encrypts and restores a Dofek grant by Slack identity", async () => {
     const database = new MemoryD1();
     const store = new CloudflareStore(database, encryptionKey);
