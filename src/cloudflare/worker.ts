@@ -38,7 +38,10 @@ const worker = {
       return handleSlackRequest(request, {
         signingSecret: env.SLACK_SIGNING_SECRET,
         recordDelivery: (deliveryId) => store.recordDelivery(deliveryId),
-        enqueue: (job) => env.FOOD_JOBS.send(job),
+        enqueue: async (job) => {
+          await env.FOOD_JOBS.send(job);
+          await store.recordQueueOutcome(job.deliveryId, "enqueued");
+        },
         startLink: (identity) =>
           startDofekLink({
             identity,
@@ -56,11 +59,10 @@ const worker = {
   ) {
     for (const message of batch.messages) {
       try {
+        const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
+        await store.recordQueueOutcome(message.body.deliveryId, "processing");
         const outcome = await processCloudflareFoodJob(message.body, env);
-        await new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY).recordQueueOutcome(
-          message.body.deliveryId,
-          outcome,
-        );
+        await store.recordQueueOutcome(message.body.deliveryId, outcome);
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Unknown error";
         console.error("Slack food job failed", {
