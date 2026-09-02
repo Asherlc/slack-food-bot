@@ -137,6 +137,15 @@ describe("CloudflareStore", () => {
     await expect(store.recordDelivery("Ev1")).resolves.toBe(false);
   });
 
+  it("records only queue-failure metadata for operational diagnosis", async () => {
+    const database = new MemoryD1();
+    const store = new CloudflareStore(database, encryptionKey);
+
+    await store.recordQueueFailure("Ev1", "Workers AI returned 500");
+
+    expect(database.values).toEqual(["Ev1", "Workers AI returned 500"]);
+  });
+
   it("encrypts and restores a Dofek grant by Slack identity", async () => {
     const database = new MemoryD1();
     const store = new CloudflareStore(database, encryptionKey);
