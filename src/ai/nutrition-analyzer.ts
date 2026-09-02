@@ -259,6 +259,19 @@ async function analyzeWorkersAiImage(
   });
   const gateResponse = gate.response ?? gate.answer ?? gate.choices?.[0]?.message?.content;
   const gateResult = parseWorkersAiResponse(gateResponse);
+  const validGate =
+    isRecord(gateResult) &&
+    typeof gateResult.isFood === "boolean" &&
+    typeof gateResult.visibleContents === "string";
+  console.info("Workers AI image gate", {
+    model: workersAiVisionModel,
+    valid: validGate,
+    isFood: isRecord(gateResult) && gateResult.isFood === true,
+    visibleContents:
+      isRecord(gateResult) && typeof gateResult.visibleContents === "string"
+        ? gateResult.visibleContents.slice(0, 200)
+        : undefined,
+  });
   if (!isRecord(gateResult) || gateResult.isFood !== true) throw new NoFoodDetectedError();
   return binding.run(workersAiVisionModel, {
     messages: [
