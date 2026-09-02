@@ -130,14 +130,21 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
-  it("uses the Workers AI vision model for a meal photo without a Gemini key", async () => {
+  it("uses one low-latency Gemma vision request for a meal photo without a Gemini key", async () => {
     const workersAi = {
-      run: vi
-        .fn()
-        .mockResolvedValueOnce({ response: { isFood: true, visibleContents: "oatmeal" } })
-        .mockResolvedValueOnce({
-          response: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\``,
-        }),
+      run: vi.fn(async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                isFood: true,
+                visibleContents: "a bowl of oatmeal",
+                items,
+              }),
+            },
+          },
+        ],
+      })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -147,31 +154,15 @@ describe("NutritionAnalyzer", () => {
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
     ).resolves.toEqual(items);
 
-    expect(workersAi.run).toHaveBeenNthCalledWith(1, "@cf/meta/llama-4-scout-17b-16e-instruct", {
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
+    expect(workersAi.run).toHaveBeenCalledWith("@cf/google/gemma-4-26b-a4b-it", {
       messages: [
         {
           role: "user",
           content: [
             expect.objectContaining({
               type: "text",
-              text: expect.stringContaining("objectively describe only what is visibly present"),
-            }),
-            { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
-          ],
-        },
-      ],
-      response_format: expect.objectContaining({ type: "json_schema" }),
-      temperature: 0,
-      max_tokens: 128,
-    });
-    expect(workersAi.run).toHaveBeenNthCalledWith(2, "@cf/meta/llama-4-scout-17b-16e-instruct", {
-      messages: [
-        {
-          role: "user",
-          content: [
-            expect.objectContaining({
-              type: "text",
-              text: expect.stringContaining('return {"items":[]}'),
+              text: expect.stringContaining("Objectively identify only what is visibly present"),
             }),
             { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
           ],
@@ -179,14 +170,16 @@ describe("NutritionAnalyzer", () => {
       ],
       response_format: { type: "json_object" },
       temperature: 0,
-      max_tokens: 1024,
+      max_tokens: 512,
+      reasoning_effort: "low",
+      chat_template_kwargs: { enable_thinking: false },
     });
   });
 
   it("rejects a photo that the vision model does not recognize as food", async () => {
     const workersAi = {
       run: vi.fn(async () => ({
-        response: { isFood: false, visibleContents: "a bathroom toilet" },
+        response: { isFood: false, visibleContents: "a bathroom toilet", items: [] },
       })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
@@ -216,7 +209,7 @@ describe("NutritionAnalyzer", () => {
   it("logs the vision gate decision and bounded visible description", async () => {
     const workersAi = {
       run: vi.fn(async () => ({
-        response: { isFood: false, visibleContents: `toilet ${"x".repeat(300)}` },
+        response: { isFood: false, visibleContents: `toilet ${"x".repeat(300)}`, items: [] },
       })),
     };
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -228,8 +221,8 @@ describe("NutritionAnalyzer", () => {
       await expect(
         analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
       ).rejects.toBeInstanceOf(NoFoodDetectedError);
-      expect(info).toHaveBeenCalledWith("Workers AI image gate", {
-        model: "@cf/meta/llama-4-scout-17b-16e-instruct",
+      expect(info).toHaveBeenCalledWith("Workers AI image analysis", {
+        model: "@cf/google/gemma-4-26b-a4b-it",
         valid: true,
         isFood: false,
         visibleContents: `toilet ${"x".repeat(193)}`,
@@ -237,6 +230,33 @@ describe("NutritionAnalyzer", () => {
     } finally {
       info.mockRestore();
     }
+  });
+
+  it("rejects an image result whose nutrient estimates are all zero", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({
+        response: {
+          isFood: true,
+          visibleContents: "a slice of pie",
+          items: [
+            {
+              foodName: "Pie",
+              foodDescription: "One slice",
+              category: "sweets_candy_and_desserts",
+              meal: "snack",
+              nutrients: { calories: 0, protein_g: 0, fat_g: 0 },
+            },
+          ],
+        },
+      })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
+    ).rejects.toThrow(/zero nutrient estimates/i);
   });
 
   it("parses the JSON content from a Workers AI chat completion", async () => {
