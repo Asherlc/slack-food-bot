@@ -16,6 +16,24 @@ const items = [
 ];
 
 describe("NutritionAnalyzer", () => {
+  it("passes a meal photo and optional caption to the vision analyzer", async () => {
+    const gemini: NutritionGenerator = { generate: vi.fn(async () => ({ items })) };
+    const analyzer = new NutritionAnalyzer({ gemini });
+    const image = new Uint8Array([255, 216, 255]);
+
+    await expect(
+      analyzer.analyzeImage(image, "image/jpeg", "with avocado", "12:30"),
+    ).resolves.toEqual(items);
+
+    expect(gemini.generate).toHaveBeenCalledWith({
+      kind: "analyze-image",
+      image,
+      mediaType: "image/jpeg",
+      text: "with avocado",
+      localTime: "12:30",
+    });
+  });
+
   it("uses Gemini first for structured intake parsing", async () => {
     const gemini: NutritionGenerator = { generate: vi.fn(async () => ({ items })) };
     const mistral: NutritionGenerator = { generate: vi.fn(async () => ({ items: [] })) };
@@ -93,6 +111,31 @@ describe("NutritionAnalyzer", () => {
     expect(JSON.stringify(firstRequest?.[1])).toContain(
       'valid JSON object with an \\"items\\" array',
     );
+  });
+
+  it("uses the Workers AI vision model for a meal photo without a Gemini key", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { items } })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
+    ).resolves.toEqual(items);
+
+    expect(workersAi.run).toHaveBeenCalledWith("@cf/google/gemma-4-26b-a4b-it", {
+      messages: [
+        {
+          role: "user",
+          content: [
+            expect.objectContaining({ type: "text", text: expect.stringContaining("lunch") }),
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
+          ],
+        },
+      ],
+    });
   });
 
   it("parses the JSON content from a Workers AI chat completion", async () => {

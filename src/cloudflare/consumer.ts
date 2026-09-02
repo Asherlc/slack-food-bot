@@ -18,6 +18,13 @@ export type CloudflarePendingEntry = PendingRecord & {
 
 type ConsumerDependencies = Partial<{
   analyze(text: string, localTime: string): Promise<NutritionItem[]>;
+  analyzeImage(input: {
+    teamId: string;
+    url: string;
+    mediaType: string;
+    text: string;
+    localTime: string;
+  }): Promise<NutritionItem[]>;
   saveClarification(input: {
     teamId: string;
     channelId: string;
@@ -44,6 +51,11 @@ type ConsumerDependencies = Partial<{
     description: string;
   }): Promise<void>;
   publishLinkRequired(input: {
+    teamId: string;
+    channelId: string;
+    threadTs: string;
+  }): Promise<void>;
+  publishAnalysisFailure(input: {
     teamId: string;
     channelId: string;
     threadTs: string;
@@ -92,7 +104,6 @@ async function processEvent(
   dependencies: ConsumerDependencies,
 ): Promise<void> {
   if (
-    !dependencies.analyze ||
     !dependencies.publishDraft ||
     !dependencies.savePending ||
     !dependencies.loadGrant ||
@@ -100,7 +111,9 @@ async function processEvent(
   )
     throw new Error("Cloudflare analysis workflow is not configured");
   const event = objectField(job.payload, "event");
-  if (!event || stringField(event, "subtype") || stringField(event, "bot_id")) return;
+  if (!event || stringField(event, "bot_id")) return;
+  const subtype = stringField(event, "subtype");
+  if (subtype && subtype !== "file_share") return;
   const type = stringField(event, "type");
   const channelType = stringField(event, "channel_type");
   if (
@@ -113,10 +126,11 @@ async function processEvent(
   const userId = stringField(event, "user");
   const channelId = stringField(event, "channel");
   const sourceMessageTs = stringField(event, "ts");
-  const rawText = stringField(event, "text");
-  if (!teamId || !userId || !channelId || !sourceMessageTs || !rawText) return;
+  const rawText = stringField(event, "text") ?? "";
+  if (!teamId || !userId || !channelId || !sourceMessageTs) return;
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
-  if (!text) return;
+  const photo = imageFile(event);
+  if (!text && !photo) return;
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
   if (!(await dependencies.loadGrant(`${teamId}:${userId}`))) {
     await dependencies.publishLinkRequired({ teamId, channelId, threadTs });
@@ -128,7 +142,7 @@ async function processEvent(
     threadTs,
     userId,
   });
-  if (!clarification && needsIngredientClarification(text)) {
+  if (!photo && !clarification && needsIngredientClarification(text)) {
     if (!dependencies.saveClarification || !dependencies.publishClarification)
       throw new Error("Cloudflare clarification workflow is not configured");
     await dependencies.saveClarification({
@@ -144,8 +158,24 @@ async function processEvent(
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
   if (Number.isNaN(time.valueOf())) return;
+  const localTime = time.toTimeString().slice(0, 5);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
-  const items = await dependencies.analyze(description, time.toTimeString().slice(0, 5));
+  let items: NutritionItem[];
+  if (photo) {
+    try {
+      items = await analyzeImage(dependencies, { teamId, ...photo, text: description, localTime });
+    } catch (error) {
+      if (!dependencies.publishAnalysisFailure) throw error;
+      console.error("Slack photo analysis failed", {
+        deliveryId: job.deliveryId,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+      await dependencies.publishAnalysisFailure({ teamId, channelId, threadTs });
+      return;
+    }
+  } else {
+    items = await analyzeText(dependencies, description, localTime);
+  }
   const draft = await dependencies.publishDraft({ teamId, channelId, threadTs, items });
   await dependencies.savePending(
     items.map((item, index) => ({
@@ -160,6 +190,37 @@ async function processEvent(
       sourceMessageTs,
     })),
   );
+}
+
+async function analyzeText(
+  dependencies: ConsumerDependencies,
+  text: string,
+  localTime: string,
+): Promise<NutritionItem[]> {
+  if (!dependencies.analyze) throw new Error("Cloudflare text analysis is not configured");
+  return dependencies.analyze(text, localTime);
+}
+
+async function analyzeImage(
+  dependencies: ConsumerDependencies,
+  input: { teamId: string; url: string; mediaType: string; text: string; localTime: string },
+): Promise<NutritionItem[]> {
+  if (!dependencies.analyzeImage) throw new Error("Cloudflare image analysis is not configured");
+  return dependencies.analyzeImage(input);
+}
+
+function imageFile(event: Record<string, unknown>): { url: string; mediaType: string } | undefined {
+  const files = event.files;
+  if (!Array.isArray(files)) return undefined;
+  for (const file of files) {
+    if (!file || typeof file !== "object" || Array.isArray(file)) continue;
+    const candidate = file as Record<string, unknown>;
+    const mediaType = stringField(candidate, "mimetype");
+    const url =
+      stringField(candidate, "url_private_download") ?? stringField(candidate, "url_private");
+    if (mediaType?.startsWith("image/") && url) return { mediaType, url };
+  }
+  return undefined;
 }
 
 function needsIngredientClarification(text: string): boolean {
