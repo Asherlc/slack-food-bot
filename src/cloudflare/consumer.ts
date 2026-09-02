@@ -94,15 +94,18 @@ type ConsumerDependencies = Partial<{
 export async function processFoodQueueJob(
   job: SlackQueueJob,
   dependencies: ConsumerDependencies,
-): Promise<void> {
-  if (job.kind === "action") return processAction(job, dependencies);
+): Promise<string> {
+  if (job.kind === "action") {
+    await processAction(job, dependencies);
+    return "action";
+  }
   return processEvent(job, dependencies);
 }
 
 async function processEvent(
   job: Extract<SlackQueueJob, { kind: "event" }>,
   dependencies: ConsumerDependencies,
-): Promise<void> {
+): Promise<string> {
   if (
     !dependencies.publishDraft ||
     !dependencies.savePending ||
@@ -111,30 +114,30 @@ async function processEvent(
   )
     throw new Error("Cloudflare analysis workflow is not configured");
   const event = objectField(job.payload, "event");
-  if (!event || stringField(event, "bot_id")) return;
+  if (!event || stringField(event, "bot_id")) return "ignored:missing-or-bot";
   const subtype = stringField(event, "subtype");
-  if (subtype && subtype !== "file_share") return;
+  if (subtype && subtype !== "file_share") return `ignored:subtype:${subtype}`;
   const type = stringField(event, "type");
   const channelType = stringField(event, "channel_type");
   if (
     type !== "app_mention" &&
     (type !== "message" || (channelType !== "im" && channelType !== "app_home"))
   ) {
-    return;
+    return `ignored:channel:${channelType ?? "unknown"}`;
   }
   const teamId = stringField(job.payload, "team_id");
   const userId = stringField(event, "user");
   const channelId = stringField(event, "channel");
   const sourceMessageTs = stringField(event, "ts");
   const rawText = stringField(event, "text") ?? "";
-  if (!teamId || !userId || !channelId || !sourceMessageTs) return;
+  if (!teamId || !userId || !channelId || !sourceMessageTs) return "ignored:missing-identifiers";
   const text = type === "app_mention" ? rawText.replace(/<@[^>]+>/g, "").trim() : rawText.trim();
   const photo = imageFile(event);
-  if (!text && !photo) return;
+  if (!text && !photo) return "ignored:empty";
   const threadTs = stringField(event, "thread_ts") ?? sourceMessageTs;
   if (!(await dependencies.loadGrant(`${teamId}:${userId}`))) {
     await dependencies.publishLinkRequired({ teamId, channelId, threadTs });
-    return;
+    return "link-required";
   }
   const clarification = await dependencies.consumeClarification?.({
     teamId,
@@ -153,11 +156,11 @@ async function processEvent(
       description: text,
     });
     await dependencies.publishClarification({ teamId, channelId, threadTs, description: text });
-    return;
+    return "clarification-required";
   }
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
-  if (Number.isNaN(time.valueOf())) return;
+  if (Number.isNaN(time.valueOf())) return "ignored:invalid-timestamp";
   // Slack event payloads do not include the sender's timezone, so analysis uses UTC consistently.
   const localTime = time.toISOString().slice(11, 16);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
@@ -172,7 +175,7 @@ async function processEvent(
         error: error instanceof Error ? error.message : "Unknown error",
       });
       await dependencies.publishAnalysisFailure({ teamId, channelId, threadTs });
-      return;
+      return "photo-analysis-failed";
     }
   } else {
     items = await analyzeText(dependencies, description, localTime);
@@ -191,6 +194,7 @@ async function processEvent(
       sourceMessageTs,
     })),
   );
+  return "draft-published";
 }
 
 async function analyzeText(

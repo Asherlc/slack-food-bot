@@ -33,7 +33,7 @@ export type CloudflareRuntimeEnv = {
 export async function processCloudflareFoodJob(
   job: SlackQueueJob,
   env: CloudflareRuntimeEnv,
-): Promise<void> {
+): Promise<string> {
   const store = new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY);
   const analyzer = createProductionNutritionAnalyzer({
     ...resolveAiCredentials(env),
@@ -45,7 +45,7 @@ export async function processCloudflareFoodJob(
     clientSecret: env.TARGET_API_CLIENT_SECRET,
   });
   const messenger = new CloudflareSlackMessenger(store);
-  await processFoodQueueJob(job, {
+  return processFoodQueueJob(job, {
     analyze: (text, localTime) => analyzer.analyze(text, localTime),
     analyzeImage: async (input) => {
       const installation = await store.loadInstallation<SlackInstallation>(input.teamId);
