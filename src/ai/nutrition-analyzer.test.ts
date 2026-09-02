@@ -119,7 +119,12 @@ describe("NutritionAnalyzer", () => {
 
   it("uses the Workers AI vision model for a meal photo without a Gemini key", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({ response: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\`` })),
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ response: { isFood: true, visibleContents: "oatmeal" } })
+        .mockResolvedValueOnce({
+          response: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\``,
+        }),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -129,7 +134,24 @@ describe("NutritionAnalyzer", () => {
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
     ).resolves.toEqual(items);
 
-    expect(workersAi.run).toHaveBeenCalledWith("@cf/meta/llama-4-scout-17b-16e-instruct", {
+    expect(workersAi.run).toHaveBeenNthCalledWith(1, "@cf/meta/llama-4-scout-17b-16e-instruct", {
+      messages: [
+        {
+          role: "user",
+          content: [
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining("objectively describe only what is visibly present"),
+            }),
+            { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
+          ],
+        },
+      ],
+      response_format: expect.objectContaining({ type: "json_schema" }),
+      temperature: 0,
+      max_tokens: 128,
+    });
+    expect(workersAi.run).toHaveBeenNthCalledWith(2, "@cf/meta/llama-4-scout-17b-16e-instruct", {
       messages: [
         {
           role: "user",
@@ -150,7 +172,23 @@ describe("NutritionAnalyzer", () => {
 
   it("rejects a photo that the vision model does not recognize as food", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({ response: { items: [] } })),
+      run: vi.fn(async () => ({
+        response: { isFood: false, visibleContents: "a bathroom toilet" },
+      })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
+    ).rejects.toBeInstanceOf(NoFoodDetectedError);
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the food-image gate returns an invalid response", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { visibleContents: "unclear" } })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer

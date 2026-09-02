@@ -67,6 +67,28 @@ describe("Slack image analysis", () => {
     }
   });
 
+  it("rejects an empty Slack image before analysis", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () => new Response(new Uint8Array(), { headers: { "content-type": "image/jpeg" } }),
+    );
+
+    try {
+      await expect(
+        analyzeSlackImage({
+          url: "https://files.slack.com/files-pri/T1-F1/F1.jpg",
+          mediaType: "image/jpeg",
+          text: "",
+          localTime: "12:00",
+          botToken: "bot-token",
+          analyze: async () => items,
+        }),
+      ).rejects.toThrow("Slack image download was empty");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("rejects an oversized Slack image from its declared length", async () => {
     vi.stubGlobal(
       "fetch",

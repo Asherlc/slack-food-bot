@@ -8,6 +8,15 @@ import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
 const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
 const workersAiVisionModel = "@cf/meta/llama-4-scout-17b-16e-instruct";
+const foodImageGateSchema = {
+  type: "object",
+  properties: {
+    isFood: { type: "boolean" },
+    visibleContents: { type: "string" },
+  },
+  required: ["isFood", "visibleContents"],
+  additionalProperties: false,
+};
 const workersAiCategories = new Set<NutritionItem["category"]>([
   "beans_and_legumes",
   "beverages",
@@ -231,6 +240,26 @@ async function analyzeWorkersAiImage(
   input: Extract<NutritionGeneration, { kind: "analyze-image" }>,
 ): Promise<Awaited<ReturnType<WorkersAiBinding["run"]>>> {
   const image = imageDataUrl(input.image, input.mediaType);
+  const gate = await binding.run(workersAiVisionModel, {
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "First objectively describe only what is visibly present in the image. Then decide whether it clearly contains edible food or a beverage intended for human consumption. Toilets, waste, bodily substances, household objects, packaging without visible food, and ambiguous scenes are not food. Do not infer a meal from shapes, colors, context, or the fact that this question asks about food.",
+          },
+          { type: "image_url", image_url: { url: image } },
+        ],
+      },
+    ],
+    response_format: { type: "json_schema", json_schema: foodImageGateSchema },
+    temperature: 0,
+    max_tokens: 128,
+  });
+  const gateResponse = gate.response ?? gate.answer ?? gate.choices?.[0]?.message?.content;
+  const gateResult = parseWorkersAiResponse(gateResponse);
+  if (!isRecord(gateResult) || gateResult.isFood !== true) throw new NoFoodDetectedError();
   return binding.run(workersAiVisionModel, {
     messages: [
       {
