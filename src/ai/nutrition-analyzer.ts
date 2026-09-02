@@ -6,7 +6,78 @@ import { parseNutritionItems } from "../nutrition/parser.js";
 import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
-const workersAiModel = "@cf/google/gemma-4-26b-a4b-it";
+const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
+const workersAiVisionModel = "@cf/moondream/moondream3.1-9B-A2B";
+const workersAiCategories = new Set<NutritionItem["category"]>([
+  "beans_and_legumes",
+  "beverages",
+  "breads_and_cereals",
+  "cheese_milk_and_dairy",
+  "eggs",
+  "fast_food",
+  "fish_and_seafood",
+  "fruit",
+  "meat",
+  "nuts_and_seeds",
+  "pasta_rice_and_noodles",
+  "salads",
+  "sauces_spices_and_spreads",
+  "snacks",
+  "soups",
+  "sweets_candy_and_desserts",
+  "vegetables",
+  "supplement",
+  "other",
+]);
+const workersAiMeals = new Set<NutritionItem["meal"]>([
+  "breakfast",
+  "lunch",
+  "dinner",
+  "snack",
+  "other",
+]);
+const workersAiCategoryAliases: Record<string, NutritionItem["category"]> = {
+  bean: "beans_and_legumes",
+  beans: "beans_and_legumes",
+  legume: "beans_and_legumes",
+  legumes: "beans_and_legumes",
+  beverage: "beverages",
+  drink: "beverages",
+  drinks: "beverages",
+  bread: "breads_and_cereals",
+  breads: "breads_and_cereals",
+  cereal: "breads_and_cereals",
+  cereals: "breads_and_cereals",
+  grain: "breads_and_cereals",
+  grains: "breads_and_cereals",
+  dairy: "cheese_milk_and_dairy",
+  cheese_and_dairy: "cheese_milk_and_dairy",
+  fish: "fish_and_seafood",
+  seafood: "fish_and_seafood",
+  nut: "nuts_and_seeds",
+  nuts: "nuts_and_seeds",
+  seed: "nuts_and_seeds",
+  seeds: "nuts_and_seeds",
+  pasta: "pasta_rice_and_noodles",
+  rice: "pasta_rice_and_noodles",
+  noodles: "pasta_rice_and_noodles",
+  salad: "salads",
+  sauce: "sauces_spices_and_spreads",
+  sauces: "sauces_spices_and_spreads",
+  spice: "sauces_spices_and_spreads",
+  spices: "sauces_spices_and_spreads",
+  spread: "sauces_spices_and_spreads",
+  spreads: "sauces_spices_and_spreads",
+  sweet: "sweets_candy_and_desserts",
+  sweets: "sweets_candy_and_desserts",
+  candy: "sweets_candy_and_desserts",
+  dessert: "sweets_candy_and_desserts",
+  desserts: "sweets_candy_and_desserts",
+  vegetable: "vegetables",
+  veggie: "vegetables",
+  veggies: "vegetables",
+  supplements: "supplement",
+};
 
 export type NutritionGeneration =
   | { kind: "analyze"; text: string; localTime: string }
@@ -35,6 +106,7 @@ export type WorkersAiBinding = {
   ): Promise<{
     response?: unknown;
     choices?: Array<{ message?: { content?: unknown } }>;
+    answer?: unknown;
   }>;
 };
 
@@ -123,24 +195,45 @@ export function createProductionNutritionAnalyzer(input: {
 function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator {
   return {
     async generate(input) {
-      const content =
+      const result =
         input.kind === "analyze-image"
-          ? [
-              { type: "text", text: workerPromptFor(input) },
-              {
-                type: "image_url",
-                image_url: { url: imageDataUrl(input.image, input.mediaType) },
-              },
-            ]
-          : (promptFor(input) as string);
-      const result = await binding.run(workersAiModel, {
-        messages: [{ role: "user", content }],
-      });
-      const response = result.response ?? result.choices?.[0]?.message?.content;
-      const parsedResponse = typeof response === "string" ? JSON.parse(response) : response;
+          ? await binding.run(workersAiVisionModel, {
+              task: "query",
+              image: imageDataUrl(input.image, input.mediaType),
+              question: workerPromptFor(input),
+              reasoning: false,
+              stream: false,
+              max_tokens: 1024,
+            })
+          : await binding.run(workersAiTextModel, {
+              messages: [{ role: "user", content: promptFor(input) as string }],
+              response_format: { type: "json_object" },
+              temperature: 0,
+              max_tokens: 1024,
+            });
+      const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
+      const parsedResponse = parseWorkersAiResponse(response);
       return normalizeWorkersAiOutput(parsedResponse);
     },
   };
+}
+
+function parseWorkersAiResponse(response: unknown): unknown {
+  if (typeof response !== "string") return response;
+  const unfenced = response
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  try {
+    return JSON.parse(unfenced);
+  } catch (error) {
+    const firstBrace = unfenced.indexOf("{");
+    const lastBrace = unfenced.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return JSON.parse(unfenced.slice(firstBrace, lastBrace + 1));
+    }
+    throw error;
+  }
 }
 
 function imageDataUrl(image: Uint8Array, mediaType: string): string {
@@ -161,11 +254,24 @@ function normalizeWorkersAiOutput(value: unknown): unknown {
       if (!isRecord(item)) return item;
       return {
         ...item,
-        category: normalizeWorkersAiLabel(item.category),
-        meal: normalizeWorkersAiLabel(item.meal),
+        category: normalizeWorkersAiCategory(item.category),
+        meal: normalizeWorkersAiMeal(item.meal),
       };
     }),
   };
+}
+
+function normalizeWorkersAiCategory(value: unknown): unknown {
+  const label = normalizeWorkersAiLabel(value);
+  if (typeof label !== "string") return label;
+  if (workersAiCategories.has(label as NutritionItem["category"])) return label;
+  return workersAiCategoryAliases[label] ?? "other";
+}
+
+function normalizeWorkersAiMeal(value: unknown): unknown {
+  const label = normalizeWorkersAiLabel(value);
+  if (typeof label !== "string") return label;
+  return workersAiMeals.has(label as NutritionItem["meal"]) ? label : "other";
 }
 
 function normalizeWorkersAiLabel(value: unknown): unknown {
@@ -218,7 +324,7 @@ function promptFor(input: NutritionGeneration): string | UserContent {
 }
 
 function nutritionInstruction(): string {
-  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
+  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
 }
 
 function isRateLimited(error: unknown): boolean {

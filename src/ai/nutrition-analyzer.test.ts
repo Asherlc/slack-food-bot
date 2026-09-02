@@ -90,7 +90,7 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
-  it("uses Gemma without unsupported schema mode when external model keys are unavailable", async () => {
+  it("uses the fast Workers AI text model when external model keys are unavailable", async () => {
     const workersAi = {
       run: vi.fn(async () => ({ response: { items } })),
     };
@@ -100,8 +100,11 @@ describe("NutritionAnalyzer", () => {
 
     await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
     expect(workersAi.run).toHaveBeenCalledWith(
-      "@cf/google/gemma-4-26b-a4b-it",
-      expect.not.objectContaining({ response_format: expect.anything() }),
+      "@cf/meta/llama-3.1-8b-instruct-fast",
+      expect.objectContaining({
+        max_tokens: 1024,
+        temperature: 0,
+      }),
     );
     const firstRequest = workersAi.run.mock.calls[0] as unknown as [string, unknown] | undefined;
     expect(JSON.stringify(firstRequest?.[1])).toContain(
@@ -115,7 +118,7 @@ describe("NutritionAnalyzer", () => {
 
   it("uses the Workers AI vision model for a meal photo without a Gemini key", async () => {
     const workersAi = {
-      run: vi.fn(async () => ({ response: { items } })),
+      run: vi.fn(async () => ({ answer: `\`\`\`json\n${JSON.stringify({ items })}\n\`\`\`` })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
@@ -125,16 +128,13 @@ describe("NutritionAnalyzer", () => {
       analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "lunch", "12:00"),
     ).resolves.toEqual(items);
 
-    expect(workersAi.run).toHaveBeenCalledWith("@cf/google/gemma-4-26b-a4b-it", {
-      messages: [
-        {
-          role: "user",
-          content: [
-            expect.objectContaining({ type: "text", text: expect.stringContaining("lunch") }),
-            { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/" } },
-          ],
-        },
-      ],
+    expect(workersAi.run).toHaveBeenCalledWith("@cf/moondream/moondream3.1-9B-A2B", {
+      task: "query",
+      image: "data:image/jpeg;base64,/9j/",
+      question: expect.stringContaining("lunch"),
+      reasoning: false,
+      stream: false,
+      max_tokens: 1024,
     });
   });
 
@@ -170,5 +170,39 @@ describe("NutritionAnalyzer", () => {
     >[0]);
 
     await expect(analyzer.analyze("oatmeal for breakfast", "08:00")).resolves.toEqual(items);
+  });
+
+  it("maps Workers AI category aliases and unsupported meal labels to valid values", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({
+        response: {
+          items: [{ ...items[0], category: "grains", meal: "brunch" }],
+        },
+      })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("oatmeal", "11:00")).resolves.toEqual([
+      { ...items[0], category: "breads_and_cereals", meal: "other" },
+    ]);
+  });
+
+  it("falls back to other for unknown Workers AI category labels", async () => {
+    const workersAi = {
+      run: vi.fn(async () => ({
+        response: {
+          items: [{ ...items[0], category: "home cooking", meal: "Breakfast" }],
+        },
+      })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("oatmeal", "08:00")).resolves.toEqual([
+      { ...items[0], category: "other" },
+    ]);
   });
 });
