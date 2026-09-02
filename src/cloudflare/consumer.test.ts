@@ -118,7 +118,7 @@ describe("Cloudflare food Queue consumer", () => {
             },
           },
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe("photo-analysis-failed");
 
       expect(errorLog).toHaveBeenCalledWith("Slack photo analysis failed", {
         deliveryId: "EvPhotoFailure",
@@ -498,7 +498,7 @@ describe("Cloudflare food Queue consumer", () => {
           },
         },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("action");
 
     expect(phases).toEqual(["processing", "failed"]);
     expect(failures).toEqual([expect.objectContaining({ dofekStatus: 503 })]);
@@ -556,7 +556,7 @@ describe("Cloudflare food Queue consumer", () => {
           deletePending: async () => undefined,
         },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe("action");
 
     expect(failures).toEqual([
       expect.objectContaining({ responseUrl: "https://hooks.slack.test/response" }),

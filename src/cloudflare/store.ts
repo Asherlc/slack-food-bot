@@ -161,6 +161,15 @@ export class CloudflareStore {
       .bind(deliveryId, error.slice(0, 500))
       .run();
   }
+
+  async recordQueueOutcome(deliveryId: string, outcome: string): Promise<void> {
+    await this.#database
+      .prepare(
+        "INSERT INTO queue_outcomes (delivery_id, outcome, occurred_at) VALUES (?, ?, unixepoch()) ON CONFLICT(delivery_id) DO UPDATE SET outcome = excluded.outcome, occurred_at = excluded.occurred_at",
+      )
+      .bind(deliveryId, outcome.slice(0, 100))
+      .run();
+  }
 }
 
 function clarificationState(input: ClarificationKey): string {

@@ -56,7 +56,11 @@ const worker = {
   ) {
     for (const message of batch.messages) {
       try {
-        await processCloudflareFoodJob(message.body, env);
+        const outcome = await processCloudflareFoodJob(message.body, env);
+        await new CloudflareStore(env.FOOD_BOT_DB, env.BOT_STATE_ENCRYPTION_KEY).recordQueueOutcome(
+          message.body.deliveryId,
+          outcome,
+        );
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Unknown error";
         console.error("Slack food job failed", {
