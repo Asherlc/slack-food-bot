@@ -110,6 +110,26 @@ describe("CloudflareStore", () => {
     });
   });
 
+  it("recovers a clarification when a Slack reply carries a different thread timestamp", async () => {
+    const store = new CloudflareStore(new MemoryD1(), encryptionKey);
+    await store.saveClarification({
+      teamId: "T1",
+      channelId: "D1",
+      threadTs: "1.0",
+      userId: "U1",
+      description: "30g collagen",
+    });
+
+    await expect(
+      store.consumeClarification({
+        teamId: "T1",
+        channelId: "D1",
+        threadTs: "2.0",
+        userId: "U1",
+      }),
+    ).resolves.toEqual({ description: "30g collagen" });
+  });
+
   it("accepts each Slack delivery ID once", async () => {
     const store = new CloudflareStore(new MemoryD1(), encryptionKey);
 
