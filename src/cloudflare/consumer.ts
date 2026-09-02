@@ -293,7 +293,10 @@ function needsIngredientClarification(text: string): boolean {
 }
 
 function isImageFilename(text: string): boolean {
-  return /(?:^|\s)[^\s]+\.(?:avif|gif|heic|heif|jpe?g|png|webp)$/i.test(text.trim());
+  return (
+    /https:\/\/files\.slack\.com\/files-pri\//i.test(text) ||
+    /\.(?:avif|gif|heic|heif|jpe?g|png|webp)(?:$|[\s|>])/i.test(text.trim())
+  );
 }
 
 async function processAction(
