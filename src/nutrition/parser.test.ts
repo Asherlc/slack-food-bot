@@ -43,6 +43,22 @@ describe("nutrition parser contracts", () => {
     ).toThrow(/all-zero nutrient estimates/i);
   });
 
+  it("rejects zero calories when an energy-bearing macronutrient is positive", () => {
+    expect(() =>
+      parseNutritionItems({
+        items: [
+          {
+            foodName: "Collagen Powder",
+            foodDescription: "25 g protein",
+            category: "supplement",
+            meal: "snack",
+            nutrients: { calories: 0, carbohydrates: 0, fat: 0, protein: 25 },
+          },
+        ],
+      }),
+    ).toThrow(/zero calories.*positive macronutrient/i);
+  });
+
   it("allows an explicitly zero-calorie beverage", () => {
     expect(
       parseNutritionItems({
