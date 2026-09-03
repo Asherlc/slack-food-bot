@@ -44,8 +44,9 @@ committed. Startup fails immediately and names missing or invalid keys.
 
 ## Cloudflare Workers deployment
 
-The Worker is configured in `wrangler.jsonc` and currently exposes only
-`GET /health` at the deployed Worker URL (for example,
+The Worker is configured in `wrangler.jsonc`. It exposes `GET /health`, Slack
+installation and OAuth callbacks, Slack event/action/command webhooks, and the
+Dofek link callback at the deployed Worker URL (for example,
 `https://slack-food-bot.<your-subdomain>.workers.dev/health`).
 
 For a local health-only preview, copy the safe placeholder configuration into
