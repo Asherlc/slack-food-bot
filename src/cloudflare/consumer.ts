@@ -18,6 +18,7 @@ export type CloudflarePendingEntry = PendingRecord & {
 
 type ConsumerDependencies = Partial<{
   analysisTimeoutMs: number;
+  resolveUserTimeZone(input: { teamId: string; userId: string }): Promise<string | undefined>;
   analyze(text: string, localTime: string): Promise<NutritionItem[]>;
   analyzeImage(input: {
     teamId: string;
@@ -173,14 +174,19 @@ async function processEvent(
 
   const time = new Date(Number.parseFloat(sourceMessageTs) * 1_000);
   if (Number.isNaN(time.valueOf())) return "ignored:invalid-timestamp";
-  // Slack event payloads do not include the sender's timezone, so analysis uses UTC consistently.
-  const localTime = time.toISOString().slice(11, 16);
+  const timeZone = await dependencies.resolveUserTimeZone?.({ teamId, userId });
+  const localDateTime = formatLocalDateTime(time, timeZone);
   const description = clarification ? `${clarification.description}\nClarification: ${text}` : text;
   let items: NutritionItem[];
   try {
     const analysis = photo
-      ? analyzeImage(dependencies, { teamId, ...photo, text: description, localTime })
-      : analyzeText(dependencies, description, localTime);
+      ? analyzeImage(dependencies, {
+          teamId,
+          ...photo,
+          text: description,
+          localTime: localDateTime.time,
+        })
+      : analyzeText(dependencies, description, localDateTime.time);
     items = await withTimeout(analysis, dependencies.analysisTimeoutMs ?? 25_000);
   } catch (error) {
     if (!dependencies.publishAnalysisFailure) throw error;
@@ -202,7 +208,7 @@ async function processEvent(
     items.map((item, index) => ({
       id: `entry:${job.deliveryId}:${index}`,
       externalSubject: `slack:${teamId}:${userId}`,
-      date: time.toISOString().slice(0, 10),
+      date: localDateTime.date,
       item,
       channelId,
       confirmationMessageTs: draft.confirmationMessageTs,
@@ -212,6 +218,26 @@ async function processEvent(
     })),
   );
   return "draft-published";
+}
+
+function formatLocalDateTime(time: Date, timeZone = "UTC"): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(time);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  const minute = parts.find((part) => part.type === "minute")?.value;
+  if (!year || !month || !day || !hour || !minute)
+    throw new Error("Unable to format Slack message date and time");
+  return { date: `${year}-${month}-${day}`, time: `${hour}:${minute}` };
 }
 
 function analysisFailureReason(error: unknown): "timeout" | "no-food" | "error" {

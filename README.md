@@ -44,8 +44,9 @@ committed. Startup fails immediately and names missing or invalid keys.
 
 ## Cloudflare Workers deployment
 
-The Worker is configured in `wrangler.jsonc` and currently exposes only
-`GET /health` at the deployed Worker URL (for example,
+The Worker is configured in `wrangler.jsonc`. It exposes `GET /health`, Slack
+installation and OAuth callbacks, Slack event/action/command webhooks, and the
+Dofek link callback at the deployed Worker URL (for example,
 `https://slack-food-bot.<your-subdomain>.workers.dev/health`).
 
 For a local health-only preview, copy the safe placeholder configuration into
@@ -80,12 +81,21 @@ wrangler secret put SLACK_CLIENT_ID
 ```
 
 Repeat `wrangler secret put <NAME>` for every required name. `PORT` is only for
-the Node HTTP server, while `TELEMETRY_ENVIRONMENT` is the non-secret Worker
-variable defined in `wrangler.jsonc`; `TELEMETRY_DSN` is optional and should be
-set with `wrangler secret put TELEMETRY_DSN` only when telemetry is enabled.
+the Node HTTP server. `TELEMETRY_ENVIRONMENT` and `DEFAULT_TIME_ZONE` are
+non-secret Worker variables defined in `wrangler.jsonc`; the latter is the IANA
+timezone used when Slack cannot return a sender's profile timezone.
+`TELEMETRY_DSN` is optional and should be set with
+`wrangler secret put TELEMETRY_DSN` only when telemetry is enabled.
 The Cloudflare deployment always uses the native `AI` binding declared in
 `wrangler.jsonc`; provider credentials and provider-selection secrets do not
 participate in Worker routing.
+
+Sender-local meal times require the `users:read` bot scope declared in
+`slack-app-manifest.json`. Apply that manifest change to the Slack app before
+rollout, then reauthorize every existing workspace by opening
+`<PUBLIC_BASE_URL>/slack/install`; deployed code cannot add scopes to an
+existing bot token. Until reauthorization succeeds, the bot uses
+`DEFAULT_TIME_ZONE` rather than blocking food logging.
 
 Upstash Redis is future integration configuration only: no Upstash connection
 or Redis store is active in the Worker runtime today. Before planning traffic,
