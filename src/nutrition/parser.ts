@@ -4,6 +4,17 @@ import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 const prohibitedNutrientKey = /(expenditure|burned|energy[_ ]out)/i;
 
 const intakeItemSchema = nutritionItemSchema.superRefine((item, context) => {
+  const nutrientValues = Object.values(item.nutrients);
+  if (
+    item.category !== "beverages" &&
+    (nutrientValues.length === 0 || nutrientValues.every((nutrient) => nutrient === 0))
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["nutrients"],
+      message: "Food and supplements cannot have all-zero nutrient estimates",
+    });
+  }
   for (const nutrientName of Object.keys(item.nutrients)) {
     if (prohibitedNutrientKey.test(nutrientName)) {
       context.addIssue({

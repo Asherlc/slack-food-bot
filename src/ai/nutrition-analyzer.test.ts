@@ -131,6 +131,61 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
+  it("regenerates an all-zero Workers AI text estimate for collagen powder", async () => {
+    const zeroEstimate = {
+      foodName: "Collagen Powder",
+      foodDescription: "30 g",
+      category: "supplement" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 0, carbohydrates: 0, fat: 0, protein: 0 },
+    };
+    const correctedEstimate = {
+      ...zeroEstimate,
+      nutrients: { calories: 110, carbohydrates: 0, fat: 0, protein: 27 },
+    };
+    const workersAi = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ response: { items: [zeroEstimate] } })
+        .mockResolvedValueOnce({ response: { items: [correctedEstimate] } }),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("30g collagen powder", "10:07")).resolves.toEqual([
+      correctedEstimate,
+    ]);
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(workersAi.run.mock.calls[0]?.[1])).toMatch(
+      /every item must have at least one positive nutrient estimate/i,
+    );
+    expect(JSON.stringify(workersAi.run.mock.calls[1]?.[1])).toMatch(
+      /previous response.*all-zero/i,
+    );
+  });
+
+  it("rejects collagen powder when the regenerated estimate remains all-zero", async () => {
+    const zeroEstimate = {
+      foodName: "Collagen Powder",
+      foodDescription: "30 g",
+      category: "supplement" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 0, carbohydrates: 0, fat: 0, protein: 0 },
+    };
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { items: [zeroEstimate] } })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("30g collagen powder", "10:07")).rejects.toThrow(
+      /all-zero nutrient estimates/i,
+    );
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
+  });
+
   it("grounds Gemma nutrition analysis with a Moondream geometry observation", async () => {
     const workersAi = {
       run: vi

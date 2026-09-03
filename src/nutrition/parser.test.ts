@@ -27,6 +27,46 @@ describe("nutrition parser contracts", () => {
     expect(() => parseNutritionItems({ items: [{ ...item, expenditureCalories: 500 }] })).toThrow();
   });
 
+  it("rejects all-zero nutrient estimates for a supplement", () => {
+    expect(() =>
+      parseNutritionItems({
+        items: [
+          {
+            foodName: "Collagen Powder",
+            foodDescription: "30 g",
+            category: "supplement",
+            meal: "snack",
+            nutrients: { calories: 0, carbohydrates: 0, fat: 0, protein: 0 },
+          },
+        ],
+      }),
+    ).toThrow(/all-zero nutrient estimates/i);
+  });
+
+  it("allows an explicitly zero-calorie beverage", () => {
+    expect(
+      parseNutritionItems({
+        items: [
+          {
+            foodName: "Water",
+            foodDescription: "One glass",
+            category: "beverages",
+            meal: "snack",
+            nutrients: { calories: 0 },
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        foodName: "Water",
+        foodDescription: "One glass",
+        category: "beverages",
+        meal: "snack",
+        nutrients: { calories: 0 },
+      },
+    ]);
+  });
+
   it("parses a refinement with the previous draft and correction", () => {
     expect(
       parseRefinement({
