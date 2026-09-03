@@ -165,6 +165,37 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
+  it("regenerates a Workers AI text estimate when zero calories conflict with protein", async () => {
+    const inconsistentEstimate = {
+      foodName: "Collagen Powder",
+      foodDescription: "25 g protein",
+      category: "supplement" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 0, carbohydrates: 0, fat: 0, protein: 25 },
+    };
+    const correctedEstimate = {
+      ...inconsistentEstimate,
+      nutrients: { calories: 100, carbohydrates: 0, fat: 0, protein: 25 },
+    };
+    const workersAi = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ response: { items: [inconsistentEstimate] } })
+        .mockResolvedValueOnce({ response: { items: [correctedEstimate] } }),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("collagen powder with 25g protein", "10:07")).resolves.toEqual([
+      correctedEstimate,
+    ]);
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(workersAi.run.mock.calls[1]?.[1])).toMatch(
+      /previous response.*zero calories.*positive macronutrient/i,
+    );
+  });
+
   it("rejects collagen powder when the regenerated estimate remains all-zero", async () => {
     const zeroEstimate = {
       foodName: "Collagen Powder",
@@ -308,6 +339,31 @@ describe("NutritionAnalyzer", () => {
     } finally {
       info.mockRestore();
     }
+  });
+
+  it("allows a zero-calorie image beverage after normalizing its category alias", async () => {
+    const water = {
+      foodName: "Water",
+      foodDescription: "One glass",
+      category: "drink",
+      meal: "snack",
+      nutrients: { calories: 0 },
+    };
+    const workersAi = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ result: { answer: "A glass of water" } })
+        .mockResolvedValueOnce({
+          response: { isFood: true, visibleContents: "a glass of water", items: [water] },
+        }),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "", "12:00"),
+    ).resolves.toEqual([{ ...water, category: "beverages" }]);
   });
 
   it("rejects an image result whose nutrient estimates are all zero", async () => {
