@@ -19,6 +19,7 @@
     "binding": "AI"
   },
   "vars": {
+    "DEFAULT_TIME_ZONE": "America/Los_Angeles",
     "TELEMETRY_ENVIRONMENT": "production",
     "PUBLIC_BASE_URL": "https://slack-food-bot.slack-food-bot.workers.dev"
   }

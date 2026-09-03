@@ -10,6 +10,85 @@ const oatmeal = {
 };
 
 describe("Cloudflare food Queue consumer", () => {
+  it("uses the Slack sender's timezone for meal inference", async () => {
+    const analyzedLocalTimes: string[] = [];
+
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvPacificLunch",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1788463800.000001",
+            text: "large plate of steak fajitas",
+          },
+        },
+      },
+      {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
+        resolveUserTimeZone: async () => "America/Los_Angeles",
+        analyze: async (_text, localTime) => {
+          analyzedLocalTimes.push(localTime);
+          return [oatmeal];
+        },
+        publishDraft: async () => ({ confirmationMessageTs: "1788463801.000001" }),
+        savePending: async () => undefined,
+      },
+    );
+
+    expect(analyzedLocalTimes).toEqual(["12:30"]);
+  });
+
+  it("persists the Slack sender's local calendar date", async () => {
+    const savedDates: string[] = [];
+
+    await processFoodQueueJob(
+      {
+        kind: "event",
+        deliveryId: "EvPacificEvening",
+        payload: {
+          team_id: "T1",
+          event: {
+            type: "message",
+            channel_type: "im",
+            user: "U1",
+            channel: "D1",
+            ts: "1719793800.000001",
+            text: "large plate of steak fajitas",
+          },
+        },
+      },
+      {
+        loadGrant: async () => ({
+          externalSubject: "T1:U1",
+          grantId: "grant-1",
+          accessToken: "token",
+          expiresInSeconds: 900,
+        }),
+        publishLinkRequired: async () => undefined,
+        resolveUserTimeZone: async () => "America/Los_Angeles",
+        analyze: async () => [oatmeal],
+        publishDraft: async () => ({ confirmationMessageTs: "1719793801.000001" }),
+        savePending: async (entries) => {
+          savedDates.push(...entries.map((entry) => entry.date));
+        },
+      },
+    );
+
+    expect(savedDates).toEqual(["2024-06-30"]);
+  });
+
   it("analyzes an image-only DM without persisting the Slack photo", async () => {
     const analyzed: unknown[] = [];
     const saved: unknown[] = [];

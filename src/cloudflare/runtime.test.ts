@@ -5,6 +5,7 @@ import {
   notifySlackAnalysisFailure,
   notifySlackLinkCompleted,
   publishInteractiveMessageUpdate,
+  resolveSlackUserTimeZone,
   traceWorkersAiBinding,
 } from "./runtime.js";
 
@@ -71,6 +72,198 @@ describe("Cloudflare AI backend", () => {
       },
     ]);
     expect(JSON.stringify(traces)).not.toContain("base64,secret");
+  });
+});
+
+describe("Slack user timezone", () => {
+  it("loads the sender's IANA timezone from Slack", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        ok: true,
+        user: {
+          id: "U1",
+          team_id: "T1",
+          name: "asher",
+          deleted: false,
+          real_name: "Asher Cohen",
+          tz: "America/Los_Angeles",
+          tz_label: "Pacific Daylight Time",
+          tz_offset: -25_200,
+          profile: {
+            real_name: "Asher Cohen",
+            display_name: "asher",
+          },
+        },
+      }),
+    );
+
+    await expect(
+      resolveSlackUserTimeZone({
+        teamId: "T1",
+        userId: "U1",
+        fallbackTimeZone: "UTC",
+        store: {
+          loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+        },
+        fetch,
+      }),
+    ).resolves.toBe("America/Los_Angeles");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://slack.com/api/users.info?user=U1",
+      expect.objectContaining({ headers: { Authorization: "Bearer bot-token" } }),
+    );
+  });
+
+  it("uses the configured timezone when Slack's user lookup times out", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let requestSignal: AbortSignal | undefined;
+
+    try {
+      await expect(
+        resolveSlackUserTimeZone({
+          teamId: "T1",
+          userId: "U1",
+          fallbackTimeZone: "America/Los_Angeles",
+          timeoutMs: 1,
+          store: {
+            loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+          },
+          fetch: async (_input, init) =>
+            new Promise<Response>((_resolve, reject) => {
+              requestSignal = init?.signal ?? undefined;
+              if (!requestSignal) {
+                reject(new Error("Slack lookup did not receive an abort signal"));
+                return;
+              }
+              requestSignal.addEventListener(
+                "abort",
+                () => reject(new DOMException("The operation was aborted", "AbortError")),
+                { once: true },
+              );
+            }),
+        }),
+      ).resolves.toBe("America/Los_Angeles");
+
+      expect(requestSignal?.aborted).toBe(true);
+      expect(warning).toHaveBeenCalledWith("Unable to resolve Slack user timezone", {
+        reason: "request_timeout",
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("uses the configured timezone when an existing Slack install lacks profile access", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        resolveSlackUserTimeZone({
+          teamId: "T1",
+          userId: "U1",
+          fallbackTimeZone: "America/Los_Angeles",
+          store: {
+            loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+          },
+          fetch: async () => Response.json({ ok: false, error: "missing_scope" }),
+        }),
+      ).resolves.toBe("America/Los_Angeles");
+
+      expect(warning).toHaveBeenCalledWith("Unable to resolve Slack user timezone", {
+        reason: "missing_scope",
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("does not include raw Slack API errors in timezone diagnostics", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const rawError = "unexpected remote details\nthat must stay private";
+
+    try {
+      await expect(
+        resolveSlackUserTimeZone({
+          teamId: "T1",
+          userId: "U1",
+          fallbackTimeZone: "America/Los_Angeles",
+          store: {
+            loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+          },
+          fetch: async () => Response.json({ ok: false, error: rawError }),
+        }),
+      ).resolves.toBe("America/Los_Angeles");
+
+      expect(warning).toHaveBeenCalledWith("Unable to resolve Slack user timezone", {
+        reason: "api_rejected",
+      });
+      expect(JSON.stringify(warning.mock.calls)).not.toContain(rawError);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("uses the configured timezone when Slack returns an invalid timezone", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        resolveSlackUserTimeZone({
+          teamId: "T1",
+          userId: "U1",
+          fallbackTimeZone: "America/Los_Angeles",
+          store: {
+            loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+          },
+          fetch: async () =>
+            Response.json({
+              ok: true,
+              user: {
+                id: "U1",
+                team_id: "T1",
+                name: "asher",
+                deleted: false,
+                real_name: "Asher Cohen",
+                tz: "Not/AZone",
+                tz_label: "Invalid Time",
+                tz_offset: 0,
+                profile: { real_name: "Asher Cohen", display_name: "asher" },
+              },
+            }),
+        }),
+      ).resolves.toBe("America/Los_Angeles");
+
+      expect(warning).toHaveBeenCalledWith("Unable to resolve Slack user timezone", {
+        reason: "timezone_invalid",
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("uses UTC when the configured fallback timezone is invalid", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await expect(
+        resolveSlackUserTimeZone({
+          teamId: "T1",
+          userId: "U1",
+          fallbackTimeZone: "Not/AZone",
+          store: {
+            loadInstallation: async <T>() => ({ botToken: "bot-token" }) as T,
+          },
+          fetch: async () => Response.json({ ok: false, error: "missing_scope" }),
+        }),
+      ).resolves.toBe("UTC");
+
+      expect(warning).toHaveBeenCalledWith("Invalid default timezone configuration", {
+        reason: "fallback_timezone_invalid",
+      });
+    } finally {
+      warning.mockRestore();
+    }
   });
 });
 

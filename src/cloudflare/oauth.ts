@@ -17,7 +17,7 @@ export async function startSlackOAuth(input: {
   url.searchParams.set("state", state);
   url.searchParams.set(
     "scope",
-    "app_mentions:read,chat:write,commands,files:read,im:history,im:read,im:write",
+    "app_mentions:read,chat:write,commands,files:read,im:history,im:read,im:write,users:read",
   );
   return Response.redirect(url);
 }

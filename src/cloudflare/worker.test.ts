@@ -6,6 +6,7 @@ const env: CloudflareEnv = {
   SLACK_CLIENT_ID: "client-id",
   SLACK_CLIENT_SECRET: "client-secret",
   BOT_STATE_ENCRYPTION_KEY: testEncryptionKey(),
+  DEFAULT_TIME_ZONE: "America/Los_Angeles",
   TARGET_API_BASE_URL: "https://dofek.example",
   TARGET_API_CLIENT_ID: "client",
   TARGET_API_CLIENT_SECRET: "credential",

@@ -19,6 +19,7 @@ const maxSlackImageBytes = 5 * 1024 * 1024;
 
 export type CloudflareRuntimeEnv = {
   BOT_STATE_ENCRYPTION_KEY: string;
+  DEFAULT_TIME_ZONE: string;
   FOOD_BOT_DB: D1DatabaseLike;
   AI: WorkersAiBinding;
   TARGET_API_BASE_URL: string;
@@ -43,6 +44,13 @@ export async function processCloudflareFoodJob(
   });
   const messenger = new CloudflareSlackMessenger(store);
   return processFoodQueueJob(job, {
+    resolveUserTimeZone: ({ teamId, userId }) =>
+      resolveSlackUserTimeZone({
+        teamId,
+        userId,
+        fallbackTimeZone: env.DEFAULT_TIME_ZONE,
+        store,
+      }),
     analyze: (text, localTime) => analyzer.analyze(text, localTime),
     analyzeImage: async (input) => {
       const installation = await store.loadInstallation<SlackInstallation>(input.teamId);
@@ -279,6 +287,102 @@ export async function publishInteractiveMessageUpdate(
 
 type SlackInstallation = { botToken: string };
 type SlackInstallationStore = Pick<CloudflareStore, "loadInstallation">;
+
+class SlackTimeZoneLookupError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(reason);
+    this.reason = reason;
+  }
+}
+
+export async function resolveSlackUserTimeZone(input: {
+  teamId: string;
+  userId: string;
+  fallbackTimeZone: string;
+  timeoutMs?: number;
+  store: SlackInstallationStore;
+  fetch?: typeof globalThis.fetch;
+}): Promise<string> {
+  const fallbackTimeZone = isValidTimeZone(input.fallbackTimeZone) ? input.fallbackTimeZone : "UTC";
+  if (fallbackTimeZone !== input.fallbackTimeZone)
+    console.warn("Invalid default timezone configuration", {
+      reason: "fallback_timezone_invalid",
+    });
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), input.timeoutMs ?? 3_000);
+  try {
+    const installation = await input.store.loadInstallation<SlackInstallation>(input.teamId);
+    if (!installation?.botToken) throw new SlackTimeZoneLookupError("installation_missing");
+    const response = await (input.fetch ?? globalThis.fetch)(
+      `https://slack.com/api/users.info?user=${encodeURIComponent(input.userId)}`,
+      {
+        headers: { Authorization: `Bearer ${installation.botToken}` },
+        signal: abortController.signal,
+      },
+    );
+    if (!response.ok) throw new SlackTimeZoneLookupError(`http_${response.status}`);
+    const result: unknown = await response.json();
+    if (!result || typeof result !== "object" || Array.isArray(result))
+      throw new SlackTimeZoneLookupError("invalid_response");
+    const record = result as Record<string, unknown>;
+    if (record.ok !== true)
+      throw new SlackTimeZoneLookupError(slackTimeZoneApiFailureReason(record.error));
+    const user = record.user;
+    if (!user || typeof user !== "object" || Array.isArray(user))
+      throw new SlackTimeZoneLookupError("user_missing");
+    const timeZone = (user as Record<string, unknown>).tz;
+    if (typeof timeZone !== "string" || timeZone.length === 0)
+      throw new SlackTimeZoneLookupError("timezone_missing");
+    if (!isValidTimeZone(timeZone)) throw new SlackTimeZoneLookupError("timezone_invalid");
+    return timeZone;
+  } catch (error) {
+    console.warn("Unable to resolve Slack user timezone", {
+      reason: abortController.signal.aborted
+        ? "request_timeout"
+        : error instanceof SlackTimeZoneLookupError
+          ? error.reason
+          : "request_failed",
+    });
+    return fallbackTimeZone;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function slackTimeZoneApiFailureReason(value: unknown): string {
+  switch (value) {
+    case "missing_scope":
+      return "missing_scope";
+    case "user_not_found":
+    case "user_not_visible":
+      return "user_unavailable";
+    case "ratelimited":
+      return "rate_limited";
+    case "request_timeout":
+    case "service_unavailable":
+      return "service_unavailable";
+    case "access_denied":
+    case "account_inactive":
+    case "team_access_not_granted":
+    case "token_expired":
+    case "token_revoked":
+      return "authorization_failed";
+    default:
+      return "api_rejected";
+  }
+}
+
+function isValidTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function notifySlackLinkCompleted(input: {
   teamId: string;

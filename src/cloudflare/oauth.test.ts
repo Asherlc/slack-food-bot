@@ -13,4 +13,16 @@ describe("Slack OAuth", () => {
       "files:read",
     );
   });
+
+  it("requests access to Slack user timezones for meal inference", async () => {
+    const response = await startSlackOAuth({
+      clientId: "client-id",
+      redirectUri: "https://bot.example.test/slack/oauth_redirect",
+      store: { saveLink: async () => undefined },
+    });
+
+    expect(
+      new URL(response.headers.get("location") ?? "").searchParams.get("scope")?.split(","),
+    ).toContain("users:read");
+  });
 });
