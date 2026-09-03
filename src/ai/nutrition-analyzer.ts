@@ -203,15 +203,26 @@ export function createProductionNutritionAnalyzer(input: {
 function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator {
   return {
     async generate(input) {
-      const result =
-        input.kind === "analyze-image"
-          ? await analyzeWorkersAiImage(binding, input)
-          : await binding.run(workersAiTextModel, {
-              messages: [{ role: "user", content: promptFor(input) as string }],
-              response_format: { type: "json_object" },
-              temperature: 0,
-              max_tokens: 1024,
-            });
+      let result: Awaited<ReturnType<WorkersAiBinding["run"]>>;
+      if (input.kind === "analyze-image") {
+        result = await analyzeWorkersAiImage(binding, input);
+      } else {
+        const prompt = promptFor(input) as string;
+        result = await runWorkersAiText(binding, prompt);
+        const firstResponse =
+          result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
+        const firstOutput = normalizeWorkersAiOutput(parseWorkersAiResponse(firstResponse));
+        if (
+          isRecord(firstOutput) &&
+          Array.isArray(firstOutput.items) &&
+          firstOutput.items.some(hasInvalidZeroNutrition)
+        ) {
+          result = await runWorkersAiText(
+            binding,
+            `${prompt}\nThe previous response was invalid because it contained an all-zero nutrient estimate. Re-estimate realistic nutrition for the described quantity; do not use zero as a placeholder for an unknown value.`,
+          );
+        }
+      }
       const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
       const parsedResponse = parseWorkersAiResponse(response);
       const normalized = normalizeWorkersAiOutput(parsedResponse);
@@ -225,6 +236,18 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
       return normalized;
     },
   };
+}
+
+function runWorkersAiText(
+  binding: WorkersAiBinding,
+  prompt: string,
+): Promise<Awaited<ReturnType<WorkersAiBinding["run"]>>> {
+  return binding.run(workersAiTextModel, {
+    messages: [{ role: "user", content: prompt }],
+    response_format: { type: "json_object" },
+    temperature: 0,
+    max_tokens: 1024,
+  });
 }
 
 async function analyzeWorkersAiImage(
@@ -434,7 +457,7 @@ function promptFor(input: NutritionGeneration): string | UserContent {
 }
 
 function nutritionInstruction(): string {
-  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
+  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Estimate realistic nutrients for the described quantity, and never use zero as a placeholder for an unknown value. Except for an explicitly zero-calorie beverage, every item must have at least one positive nutrient estimate. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
 }
 
 function isRateLimited(error: unknown): boolean {
