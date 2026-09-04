@@ -7,6 +7,7 @@ import { type NutritionItem, nutritionItemSchema } from "../targets/types.js";
 
 const nutritionResultSchema = z.object({ items: z.array(nutritionItemSchema).min(1) }).strict();
 const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
+const workersAiTextFallbackModel = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const workersAiObserverModel = "@cf/moondream/moondream3.1-9B-A2B";
 const workersAiVisionModel = "@cf/google/gemma-4-26b-a4b-it";
 const workersAiCategories = new Set<NutritionItem["category"]>([
@@ -224,6 +225,7 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
           result = await runWorkersAiText(
             binding,
             `${prompt}\nThe previous response was invalid because ${reason}. Re-estimate realistic nutrition for the described quantity; do not use zero as a placeholder for an unknown value.`,
+            workersAiTextFallbackModel,
           );
         }
       }
@@ -245,8 +247,9 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
 function runWorkersAiText(
   binding: WorkersAiBinding,
   prompt: string,
+  model = workersAiTextModel,
 ): Promise<Awaited<ReturnType<WorkersAiBinding["run"]>>> {
-  return binding.run(workersAiTextModel, {
+  return binding.run(model, {
     messages: [{ role: "user", content: prompt }],
     response_format: { type: "json_object" },
     temperature: 0,
