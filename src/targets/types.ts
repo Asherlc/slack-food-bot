@@ -43,6 +43,7 @@ export const nutritionItemSchema = z
     foodDescription: z.string().max(2_000),
     category: categorySchema,
     meal: mealSchema,
+    numberOfUnits: z.number().positive().optional(),
     nutrients: nutrientsSchema,
   })
   .strict();
@@ -52,7 +53,6 @@ export type NutritionItem = z.infer<typeof nutritionItemSchema>;
 export const nutritionWriteEntrySchema = nutritionItemSchema.extend({
   date: dateSchema,
   externalId: z.string().min(1).max(500),
-  numberOfUnits: z.number().positive().optional(),
 });
 
 export type NutritionWriteEntry = z.infer<typeof nutritionWriteEntrySchema>;

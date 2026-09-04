@@ -10,6 +10,69 @@ const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
 const workersAiTextFallbackModel = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const workersAiObserverModel = "@cf/moondream/moondream3.1-9B-A2B";
 const workersAiVisionModel = "@cf/google/gemma-4-26b-a4b-it";
+const quantityWords: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
+const measurementUnits = new Set([
+  "%",
+  "cm",
+  "cup",
+  "cups",
+  "fl",
+  "g",
+  "gallon",
+  "gallons",
+  "gram",
+  "grams",
+  "inch",
+  "inches",
+  "kg",
+  "kilogram",
+  "kilograms",
+  "l",
+  "lb",
+  "lbs",
+  "liter",
+  "liters",
+  "litre",
+  "litres",
+  "mcg",
+  "mg",
+  "milligram",
+  "milligrams",
+  "milliliter",
+  "milliliters",
+  "ml",
+  "ounce",
+  "ounces",
+  "oz",
+  "pct",
+  "percent",
+  "percentage",
+  "pint",
+  "pints",
+  "pound",
+  "pounds",
+  "quart",
+  "quarts",
+  "tablespoon",
+  "tablespoons",
+  "tbsp",
+  "teaspoon",
+  "teaspoons",
+  "tsp",
+]);
 const workersAiCategories = new Set<NutritionItem["category"]>([
   "beans_and_legumes",
   "beverages",
@@ -162,18 +225,26 @@ export class NutritionAnalyzer {
     const gemini = this.#gemini;
     const mistral = this.#mistral;
     const workersAi = this.#workersAi;
-    if (workersAi) return parseNutritionItems(await workersAi.generate(input));
+    let items: NutritionItem[];
+    if (workersAi) {
+      items = parseNutritionItems(await workersAi.generate(input));
+      return applyLeadingExplicitQuantity(input, items);
+    }
     if (!gemini) {
-      if (mistral) return parseNutritionItems(await mistral.generate(input));
+      if (mistral) {
+        items = parseNutritionItems(await mistral.generate(input));
+        return applyLeadingExplicitQuantity(input, items);
+      }
       throw new Error("A nutrition model is required");
     }
     try {
-      return parseNutritionItems(await gemini.generate(input));
+      items = parseNutritionItems(await gemini.generate(input));
     } catch (error) {
       if (!isRateLimited(error)) throw error;
-      if (mistral) return parseNutritionItems(await mistral.generate(input));
-      throw error;
+      if (mistral) items = parseNutritionItems(await mistral.generate(input));
+      else throw error;
     }
+    return applyLeadingExplicitQuantity(input, items);
   }
 }
 
@@ -336,6 +407,36 @@ function normalizeVisibleContents(value: unknown): string | undefined {
   return undefined;
 }
 
+function applyLeadingExplicitQuantity(
+  input: NutritionGeneration,
+  items: NutritionItem[],
+): NutritionItem[] {
+  if (input.kind === "refine") return items;
+  const quantity = leadingExplicitQuantity(input.text);
+  const firstItem = items[0];
+  if (quantity === undefined || quantity <= 1 || !firstItem) return items;
+  return [
+    {
+      ...firstItem,
+      foodDescription: items.length === 1 ? input.text.trim() : firstItem.foodDescription,
+      numberOfUnits: quantity,
+      nutrients: Object.fromEntries(
+        Object.entries(firstItem.nutrients).map(([name, amount]) => [name, amount * quantity]),
+      ),
+    },
+    ...items.slice(1),
+  ];
+}
+
+function leadingExplicitQuantity(text: string): number | undefined {
+  const match = /^\s*(\d+(?:\.\d+)?|[a-z]+)\s+([^\s,]+)/i.exec(text);
+  const token = match?.[1]?.toLowerCase();
+  const followingToken = match?.[2]?.toLowerCase().replace(/[.!?:;]+$/, "");
+  if (!token || !followingToken || measurementUnits.has(followingToken)) return undefined;
+  const quantity = quantityWords[token] ?? Number(token);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : undefined;
+}
+
 function extractWorkersAiText(
   result: Awaited<ReturnType<WorkersAiBinding["run"]>>,
 ): string | undefined {
@@ -462,7 +563,7 @@ function promptFor(input: NutritionGeneration): string | UserContent {
 }
 
 function nutritionInstruction(): string {
-  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Estimate realistic nutrients for the described quantity, and never use zero as a placeholder for an unknown value. Except for an explicitly zero-calorie beverage, every item must have at least one positive nutrient estimate. Calories must be positive whenever protein, carbohydrate, or fat is positive. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
+  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. When the input starts with a count of identical items or servings, estimate nutrient amounts for one item or serving only; the runtime will multiply them by the count. Do not treat measured amounts such as 30 g, 12 oz, 2 cups, or 2% as item counts; estimate nutrients for the entire measured amount. Estimate realistic nutrients for the described quantity, and never use zero as a placeholder for an unknown value. Except for an explicitly zero-calorie beverage, every item must have at least one positive nutrient estimate. Calories must be positive whenever protein, carbohydrate, or fat is positive. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
 }
 
 function isRateLimited(error: unknown): boolean {

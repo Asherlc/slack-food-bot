@@ -14,10 +14,10 @@ export type BlockKitBlock =
     };
 
 export function formatDraft(items: ReadonlyArray<NutritionItem>): BlockKitBlock[] {
-  const lines = items.map(
-    (item) =>
-      `• *${escapeMrkdwn(item.foodName)}* (${escapeMrkdwn(item.meal)}): ${formatSummary(item.nutrients)}`,
-  );
+  const lines = items.map((item) => {
+    const count = item.numberOfUnits && item.numberOfUnits !== 1 ? `${item.numberOfUnits} × ` : "";
+    return `• *${count}${escapeMrkdwn(item.foodName)}* (${escapeMrkdwn(item.meal)}): ${formatSummary(item.nutrients)}`;
+  });
   return [
     {
       type: "section",
