@@ -33,6 +33,21 @@ describe("Slack Block Kit formatting", () => {
     );
   });
 
+  it("shows an explicit item count in the draft", () => {
+    const blocks = formatDraft([
+      {
+        foodName: "RX Bar",
+        foodDescription: "Two bars",
+        category: "snacks",
+        meal: "snack",
+        numberOfUnits: 2,
+        nutrients: { calories: 420 },
+      },
+    ]);
+
+    expect(JSON.stringify(blocks)).toContain("2 × RX Bar");
+  });
+
   it("renders target-returned IDs and available server summary", () => {
     const blocks = formatConfirmation({
       entries: [{ id: "entry-1", externalId: "draft-1" }],

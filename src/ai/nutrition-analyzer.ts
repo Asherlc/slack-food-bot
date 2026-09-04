@@ -10,6 +10,20 @@ const workersAiTextModel = "@cf/meta/llama-3.1-8b-instruct-fast";
 const workersAiTextFallbackModel = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const workersAiObserverModel = "@cf/moondream/moondream3.1-9B-A2B";
 const workersAiVisionModel = "@cf/google/gemma-4-26b-a4b-it";
+const quantityWords: Readonly<Record<string, number>> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
 const workersAiCategories = new Set<NutritionItem["category"]>([
   "beans_and_legumes",
   "beverages",
@@ -217,11 +231,13 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
           isRecord(firstOutput) && Array.isArray(firstOutput.items)
             ? firstOutput.items.map(findNutritionEstimateIssue).find((issue) => issue !== undefined)
             : undefined;
-        if (estimateIssue) {
+        const quantityIssue = findExplicitQuantityIssue(input, firstOutput);
+        if (estimateIssue || quantityIssue) {
           const reason =
-            estimateIssue === "all-zero"
+            quantityIssue ??
+            (estimateIssue === "all-zero"
               ? "it contained an all-zero nutrient estimate"
-              : "it reported zero calories alongside a positive macronutrient estimate";
+              : "it reported zero calories alongside a positive macronutrient estimate");
           result = await runWorkersAiText(
             binding,
             `${prompt}\nThe previous response was invalid because ${reason}. Re-estimate realistic nutrition for the described quantity; do not use zero as a placeholder for an unknown value.`,
@@ -232,6 +248,9 @@ function createWorkersAiGenerator(binding: WorkersAiBinding): NutritionGenerator
       const response = result.response ?? result.answer ?? result.choices?.[0]?.message?.content;
       const parsedResponse = parseWorkersAiResponse(response);
       const normalized = normalizeWorkersAiOutput(parsedResponse);
+      const quantityIssue = findExplicitQuantityIssue(input, normalized);
+      if (quantityIssue)
+        throw new Error(`Workers AI text analysis was invalid because ${quantityIssue}`);
       if (
         input.kind === "analyze-image" &&
         isRecord(normalized) &&
@@ -334,6 +353,27 @@ function normalizeVisibleContents(value: unknown): string | undefined {
   if (Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string"))
     return value.join(", ");
   return undefined;
+}
+
+function findExplicitQuantityIssue(
+  input: NutritionGeneration,
+  output: unknown,
+): string | undefined {
+  if (input.kind !== "analyze" || !isRecord(output) || !Array.isArray(output.items))
+    return undefined;
+  const quantity = leadingExplicitQuantity(input.text);
+  if (quantity === undefined || quantity <= 1) return undefined;
+  const firstItem = output.items[0];
+  if (isRecord(firstItem) && firstItem.numberOfUnits === quantity) return undefined;
+  return `the explicit quantity ${quantity} was not preserved in numberOfUnits with nutrient totals for the full quantity`;
+}
+
+function leadingExplicitQuantity(text: string): number | undefined {
+  const match = /^\s*(\d+(?:\.\d+)?|[a-z]+)(?=\s)/i.exec(text);
+  const token = match?.[1]?.toLowerCase();
+  if (!token) return undefined;
+  const quantity = quantityWords[token] ?? Number(token);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : undefined;
 }
 
 function extractWorkersAiText(
@@ -462,7 +502,7 @@ function promptFor(input: NutritionGeneration): string | UserContent {
 }
 
 function nutritionInstruction(): string {
-  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. Estimate realistic nutrients for the described quantity, and never use zero as a placeholder for an unknown value. Except for an explicitly zero-calorie beverage, every item must have at least one positive nutrient estimate. Calories must be positive whenever protein, carbohydrate, or fat is positive. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
+  return 'Return only a valid JSON object with an "items" array. Each item must have foodName, foodDescription, category, meal, and a nutrients object with non-negative numeric values. When the input explicitly specifies a count of identical items or servings, also set numberOfUnits to that count, preserve the count in foodDescription, and make every nutrient amount the total for the entire consumed quantity rather than one unit. Estimate realistic nutrients for the described quantity, and never use zero as a placeholder for an unknown value. Except for an explicitly zero-calorie beverage, every item must have at least one positive nutrient estimate. Calories must be positive whenever protein, carbohydrate, or fat is positive. Category must be exactly one of: beans_and_legumes, beverages, breads_and_cereals, cheese_milk_and_dairy, eggs, fast_food, fish_and_seafood, fruit, meat, nuts_and_seeds, pasta_rice_and_noodles, salads, sauces_spices_and_spreads, snacks, soups, sweets_candy_and_desserts, vegetables, supplement, other. Meal must be exactly one of: breakfast, lunch, dinner, snack, other. Do not include Markdown or explanatory text. Return only food intake items. Do not include exercise, energy expenditure, or non-food activity. Do not invent ingredients or accompaniments that are not explicitly described. Do not expand a food name into a recipe or default serving format. When a name is ambiguous between a standalone item and a composite dish, use the least-composite interpretation. Use the supplied local time to infer meal when needed.';
 }
 
 function isRateLimited(error: unknown): boolean {

@@ -232,6 +232,64 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
+  it("retries with the stronger model when a text estimate drops an explicit quantity", async () => {
+    const oneBarEstimate = {
+      foodName: "RX Bar",
+      foodDescription: "One bar",
+      category: "snacks" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 210, carbohydrates: 24, fat: 9, protein: 12 },
+    };
+    const twoBarEstimate = {
+      ...oneBarEstimate,
+      foodDescription: "Two bars",
+      numberOfUnits: 2,
+      nutrients: { calories: 420, carbohydrates: 48, fat: 18, protein: 24 },
+    };
+    const workersAi = {
+      run: vi
+        .fn()
+        .mockResolvedValueOnce({ response: { items: [oneBarEstimate] } })
+        .mockResolvedValueOnce({ response: { items: [twoBarEstimate] } }),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("two rx bars", "10:00")).resolves.toEqual([twoBarEstimate]);
+    expect(workersAi.run).toHaveBeenCalledTimes(2);
+    expect(workersAi.run).toHaveBeenNthCalledWith(
+      2,
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            content: expect.stringMatching(/explicit quantity.*2.*preserve/i),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("does not treat a leading percentage as an item count", async () => {
+    const milkEstimate = {
+      foodName: "2% Milk",
+      foodDescription: "One glass",
+      category: "cheese_milk_and_dairy" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 120, carbohydrates: 12, fat: 5, protein: 8 },
+    };
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { items: [milkEstimate] } })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("2% milk", "10:00")).resolves.toEqual([milkEstimate]);
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
+  });
+
   it("grounds Gemma nutrition analysis with a Moondream geometry observation", async () => {
     const workersAi = {
       run: vi

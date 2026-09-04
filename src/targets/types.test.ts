@@ -20,6 +20,26 @@ describe("target-neutral nutrition contracts", () => {
     });
   });
 
+  it("preserves the number of consumed units in an intake item", () => {
+    expect(
+      nutritionItemSchema.parse({
+        foodName: "RX Bar",
+        foodDescription: "Two bars",
+        category: "snacks",
+        meal: "snack",
+        numberOfUnits: 2,
+        nutrients: { calories: 420, protein: 24 },
+      }),
+    ).toEqual({
+      foodName: "RX Bar",
+      foodDescription: "Two bars",
+      category: "snacks",
+      meal: "snack",
+      numberOfUnits: 2,
+      nutrients: { calories: 420, protein: 24 },
+    });
+  });
+
   it("rejects expenditure calories from intake items", () => {
     expect(() =>
       nutritionItemSchema.parse({
