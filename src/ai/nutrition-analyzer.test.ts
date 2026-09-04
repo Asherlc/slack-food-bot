@@ -36,6 +36,31 @@ describe("NutritionAnalyzer", () => {
     });
   });
 
+  it("calculates full nutrient totals for an explicit quantity in an image caption", async () => {
+    const perBarEstimate = {
+      foodName: "RX Bar",
+      foodDescription: "One bar",
+      category: "snacks" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 210, carbohydrates: 24, fat: 9, protein: 12 },
+    };
+    const gemini: NutritionGenerator = {
+      generate: vi.fn(async () => ({ items: [perBarEstimate] })),
+    };
+    const analyzer = new NutritionAnalyzer({ gemini });
+
+    await expect(
+      analyzer.analyzeImage(new Uint8Array([255, 216, 255]), "image/jpeg", "two rx bars", "10:00"),
+    ).resolves.toEqual([
+      {
+        ...perBarEstimate,
+        foodDescription: "two rx bars",
+        numberOfUnits: 2,
+        nutrients: { calories: 420, carbohydrates: 48, fat: 18, protein: 24 },
+      },
+    ]);
+  });
+
   it("uses Gemini first for structured intake parsing", async () => {
     const gemini: NutritionGenerator = { generate: vi.fn(async () => ({ items })) };
     const mistral: NutritionGenerator = { generate: vi.fn(async () => ({ items: [] })) };
@@ -302,27 +327,32 @@ describe("NutritionAnalyzer", () => {
     expect(workersAi.run).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["30 g collagen powder", "12 oz soda", "2 % milk"])(
-    "does not treat the measurement in %s as an item count",
-    async (text) => {
-      const estimate = {
-        foodName: "Measured food",
-        foodDescription: "One measured serving",
-        category: "other" as const,
-        meal: "snack" as const,
-        nutrients: { calories: 120 },
-      };
-      const workersAi = {
-        run: vi.fn(async () => ({ response: { items: [estimate] } })),
-      };
-      const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
-        typeof createProductionNutritionAnalyzer
-      >[0]);
+  it.each([
+    "30 g collagen powder",
+    "12 oz soda",
+    "12 oz. soda",
+    "2 % milk",
+    "2 percent milk",
+    "two percent milk",
+    "2 pct milk",
+  ])("does not treat the measurement in %s as an item count", async (text) => {
+    const estimate = {
+      foodName: "Measured food",
+      foodDescription: "One measured serving",
+      category: "other" as const,
+      meal: "snack" as const,
+      nutrients: { calories: 120 },
+    };
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { items: [estimate] } })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
 
-      await expect(analyzer.analyze(text, "10:00")).resolves.toEqual([estimate]);
-      expect(workersAi.run).toHaveBeenCalledTimes(1);
-    },
-  );
+    await expect(analyzer.analyze(text, "10:00")).resolves.toEqual([estimate]);
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
+  });
 
   it("grounds Gemma nutrition analysis with a Moondream geometry observation", async () => {
     const workersAi = {

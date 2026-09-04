@@ -57,6 +57,9 @@ const measurementUnits = new Set([
   "ounce",
   "ounces",
   "oz",
+  "pct",
+  "percent",
+  "percentage",
   "pint",
   "pints",
   "pound",
@@ -408,7 +411,7 @@ function applyLeadingExplicitQuantity(
   input: NutritionGeneration,
   items: NutritionItem[],
 ): NutritionItem[] {
-  if (input.kind !== "analyze") return items;
+  if (input.kind === "refine") return items;
   const quantity = leadingExplicitQuantity(input.text);
   const firstItem = items[0];
   if (quantity === undefined || quantity <= 1 || !firstItem) return items;
@@ -428,7 +431,7 @@ function applyLeadingExplicitQuantity(
 function leadingExplicitQuantity(text: string): number | undefined {
   const match = /^\s*(\d+(?:\.\d+)?|[a-z]+)\s+([^\s,]+)/i.exec(text);
   const token = match?.[1]?.toLowerCase();
-  const followingToken = match?.[2]?.toLowerCase();
+  const followingToken = match?.[2]?.toLowerCase().replace(/[.!?:;]+$/, "");
   if (!token || !followingToken || measurementUnits.has(followingToken)) return undefined;
   const quantity = quantityWords[token] ?? Number(token);
   return Number.isFinite(quantity) && quantity > 0 ? quantity : undefined;
