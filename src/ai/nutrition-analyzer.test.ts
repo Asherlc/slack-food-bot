@@ -196,7 +196,7 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
-  it("rejects collagen powder when the regenerated estimate remains all-zero", async () => {
+  it("falls back to a stronger model when the fast model repeats an all-zero estimate", async () => {
     const zeroEstimate = {
       foodName: "Collagen Powder",
       foodDescription: "30 g",
@@ -204,17 +204,32 @@ describe("NutritionAnalyzer", () => {
       meal: "snack" as const,
       nutrients: { calories: 0, carbohydrates: 0, fat: 0, protein: 0 },
     };
+    const correctedEstimate = {
+      ...zeroEstimate,
+      nutrients: { calories: 110, carbohydrates: 0, fat: 0, protein: 27 },
+    };
     const workersAi = {
-      run: vi.fn(async () => ({ response: { items: [zeroEstimate] } })),
+      run: vi.fn(async (model: string) => ({
+        response: {
+          items: [
+            model === "@cf/meta/llama-3.1-8b-instruct-fast" ? zeroEstimate : correctedEstimate,
+          ],
+        },
+      })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
     >[0]);
 
-    await expect(analyzer.analyze("30g collagen powder", "10:07")).rejects.toThrow(
-      /all-zero nutrient estimates/i,
-    );
+    await expect(analyzer.analyze("30g collagen powder", "10:07")).resolves.toEqual([
+      correctedEstimate,
+    ]);
     expect(workersAi.run).toHaveBeenCalledTimes(2);
+    expect(workersAi.run).toHaveBeenNthCalledWith(
+      2,
+      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      expect.any(Object),
+    );
   });
 
   it("grounds Gemma nutrition analysis with a Moondream geometry observation", async () => {
