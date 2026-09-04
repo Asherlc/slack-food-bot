@@ -232,7 +232,7 @@ describe("NutritionAnalyzer", () => {
     );
   });
 
-  it("retries with the stronger model when a text estimate drops an explicit quantity", async () => {
+  it("preserves and totals an explicit quantity when the model drops it", async () => {
     const oneBarEstimate = {
       foodName: "RX Bar",
       foodDescription: "One bar",
@@ -242,33 +242,45 @@ describe("NutritionAnalyzer", () => {
     };
     const twoBarEstimate = {
       ...oneBarEstimate,
-      foodDescription: "Two bars",
+      foodDescription: "two rx bars",
       numberOfUnits: 2,
       nutrients: { calories: 420, carbohydrates: 48, fat: 18, protein: 24 },
     };
     const workersAi = {
-      run: vi
-        .fn()
-        .mockResolvedValueOnce({ response: { items: [oneBarEstimate] } })
-        .mockResolvedValueOnce({ response: { items: [twoBarEstimate] } }),
+      run: vi.fn(async () => ({ response: { items: [oneBarEstimate] } })),
     };
     const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
       typeof createProductionNutritionAnalyzer
     >[0]);
 
     await expect(analyzer.analyze("two rx bars", "10:00")).resolves.toEqual([twoBarEstimate]);
-    expect(workersAi.run).toHaveBeenCalledTimes(2);
-    expect(workersAi.run).toHaveBeenNthCalledWith(
-      2,
-      "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      expect.objectContaining({
-        messages: [
-          expect.objectContaining({
-            content: expect.stringMatching(/explicit quantity.*2.*preserve/i),
-          }),
-        ],
-      }),
-    );
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("calculates full nutrient totals when a model returns per-unit nutrients", async () => {
+    const perBarEstimate = {
+      foodName: "RX Bar",
+      foodDescription: "One bar",
+      category: "snacks" as const,
+      meal: "snack" as const,
+      numberOfUnits: 2,
+      nutrients: { calories: 210, carbohydrates: 24, fat: 9, protein: 12 },
+    };
+    const workersAi = {
+      run: vi.fn(async () => ({ response: { items: [perBarEstimate] } })),
+    };
+    const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+      typeof createProductionNutritionAnalyzer
+    >[0]);
+
+    await expect(analyzer.analyze("two rx bars", "10:00")).resolves.toEqual([
+      {
+        ...perBarEstimate,
+        foodDescription: "two rx bars",
+        nutrients: { calories: 420, carbohydrates: 48, fat: 18, protein: 24 },
+      },
+    ]);
+    expect(workersAi.run).toHaveBeenCalledTimes(1);
   });
 
   it("does not treat a leading percentage as an item count", async () => {
@@ -289,6 +301,28 @@ describe("NutritionAnalyzer", () => {
     await expect(analyzer.analyze("2% milk", "10:00")).resolves.toEqual([milkEstimate]);
     expect(workersAi.run).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["30 g collagen powder", "12 oz soda", "2 % milk"])(
+    "does not treat the measurement in %s as an item count",
+    async (text) => {
+      const estimate = {
+        foodName: "Measured food",
+        foodDescription: "One measured serving",
+        category: "other" as const,
+        meal: "snack" as const,
+        nutrients: { calories: 120 },
+      };
+      const workersAi = {
+        run: vi.fn(async () => ({ response: { items: [estimate] } })),
+      };
+      const analyzer = createProductionNutritionAnalyzer({ workersAi } as Parameters<
+        typeof createProductionNutritionAnalyzer
+      >[0]);
+
+      await expect(analyzer.analyze(text, "10:00")).resolves.toEqual([estimate]);
+      expect(workersAi.run).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("grounds Gemma nutrition analysis with a Moondream geometry observation", async () => {
     const workersAi = {
